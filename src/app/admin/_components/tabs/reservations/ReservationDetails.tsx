@@ -78,6 +78,14 @@ export function ReservationDetails({ reservation }: { reservation: Reservation }
             <span>합계</span>
             <span>{reservation.totalAmount.toLocaleString()}원</span>
           </div>
+
+          <div className="my-1.5 border-t border-dashed border-neutral-300 dark:border-neutral-700" />
+          <div className="flex justify-between gap-2">
+            <span>환불 계좌</span>
+            <span className="truncate">
+              {reservation.bank} {reservation.accountNumber}
+            </span>
+          </div>
         </div>
       )}
     </div>

@@ -1,0 +1,171 @@
+import "server-only";
+import { getAdminDb } from "@/lib/firebase/admin";
+import type { AdminBooth, MenuItem } from "./types";
+
+const BOOTHS_COLLECTION = "booths";
+const IMAGES_SUBCOLLECTION = "images";
+
+type ImageDoc = {
+  kind: "description" | "menu";
+  /** kind === "menu"일 때만 값이 있음 */
+  menuId: string | null;
+  dataUrl: string;
+  position: number;
+};
+
+type BoothDocData = {
+  department: string;
+  name: string;
+  ownerName: string;
+  ownerPhone: string | null;
+  descriptionText: string;
+  minOrder: number;
+  tables: AdminBooth["tables"];
+  menus: Omit<MenuItem, "image">[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+function boothsCollection() {
+  return getAdminDb().collection(BOOTHS_COLLECTION);
+}
+
+function toLightBooth(id: string, data: BoothDocData): AdminBooth {
+  return {
+    id,
+    department: data.department ?? "",
+    name: data.name,
+    ownerName: data.ownerName,
+    ownerPhone: data.ownerPhone ?? null,
+    descriptionText: data.descriptionText,
+    descriptionImages: [],
+    menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
+    minOrder: data.minOrder,
+    tables: data.tables ?? [],
+    createdAt: data.createdAt,
+  };
+}
+
+/** 문서 하나 + 그 images 서브컬렉션을 읽어 이미지까지 포함한 완전한 주점으로 조립 */
+async function hydrateBoothWithImages(
+  doc: FirebaseFirestore.DocumentSnapshot,
+): Promise<AdminBooth | null> {
+  if (!doc.exists) return null;
+  const data = doc.data() as BoothDocData;
+  const imagesSnap = await doc.ref
+    .collection(IMAGES_SUBCOLLECTION)
+    .orderBy("position", "asc")
+    .get();
+  const images = imagesSnap.docs.map((d) => d.data() as ImageDoc);
+
+  const descriptionImages = images
+    .filter((img) => img.kind === "description")
+    .map((img) => img.dataUrl);
+
+  const menuImageByMenuId = new Map(
+    images
+      .filter((img) => img.kind === "menu" && img.menuId)
+      .map((img) => [img.menuId as string, img.dataUrl]),
+  );
+
+  return {
+    id: doc.id,
+    department: data.department ?? "",
+    name: data.name,
+    ownerName: data.ownerName,
+    ownerPhone: data.ownerPhone ?? null,
+    descriptionText: data.descriptionText,
+    descriptionImages,
+    menus: (data.menus ?? []).map((m) => ({
+      ...m,
+      image: menuImageByMenuId.get(m.id) ?? "",
+    })),
+    minOrder: data.minOrder,
+    tables: data.tables ?? [],
+    createdAt: data.createdAt,
+  };
+}
+
+/**
+ * 관리자 목록 화면용 - 이미지 없이 가벼운 필드만 가져옴 (읽기 비용 절약).
+ * descriptionImages는 빈 배열, 메뉴의 image는 빈 문자열로 채워짐.
+ */
+export async function listBoothsLight(): Promise<AdminBooth[]> {
+  const snap = await boothsCollection().orderBy("createdAt", "asc").get();
+  return snap.docs.map((doc) => toLightBooth(doc.id, doc.data() as BoothDocData));
+}
+
+/** 수정 모달을 열 때 등, 이미지까지 포함한 완전한 주점 데이터가 필요할 때 사용 (관리자 전용) */
+export async function getBoothWithImages(id: string): Promise<AdminBooth | null> {
+  const doc = await boothsCollection().doc(id).get();
+  return hydrateBoothWithImages(doc);
+}
+
+/**
+ * 공개 축제 페이지(/festival)용 - 인증 없이 전체 주점을 이미지까지 포함해서 가져옴.
+ * 주점 수가 적어서(최대 수십 개) N+1 읽기로도 충분히 저렴함.
+ */
+export async function listPublicBooths(): Promise<AdminBooth[]> {
+  const snap = await boothsCollection().orderBy("createdAt", "asc").get();
+  const booths = await Promise.all(snap.docs.map((doc) => hydrateBoothWithImages(doc)));
+  return booths.filter((b): b is AdminBooth => b !== null);
+}
+
+/** 생성/수정 공용 - booth.id를 문서 id로 그대로 사용 (upsert) */
+export async function saveBooth(booth: AdminBooth): Promise<void> {
+  const db = getAdminDb();
+  const ref = boothsCollection().doc(booth.id);
+  const now = new Date().toISOString();
+
+  const menusMeta: Omit<MenuItem, "image">[] = booth.menus.map((m) => ({
+    id: m.id,
+    name: m.name,
+    description: m.description,
+    price: m.price,
+  }));
+
+  const docData: BoothDocData = {
+    department: booth.department,
+    name: booth.name,
+    ownerName: booth.ownerName,
+    ownerPhone: booth.ownerPhone,
+    descriptionText: booth.descriptionText,
+    minOrder: booth.minOrder,
+    tables: booth.tables,
+    menus: menusMeta,
+    createdAt: booth.createdAt,
+    updatedAt: now,
+  };
+
+  const imagesRef = ref.collection(IMAGES_SUBCOLLECTION);
+  const existingImages = await imagesRef.get();
+
+  const batch = db.batch();
+  batch.set(ref, docData);
+  existingImages.docs.forEach((d) => batch.delete(d.ref));
+
+  booth.descriptionImages.forEach((dataUrl, i) => {
+    const imageDoc: ImageDoc = { kind: "description", menuId: null, dataUrl, position: i };
+    batch.set(imagesRef.doc(`desc-${i}`), imageDoc);
+  });
+
+  booth.menus.forEach((menu, i) => {
+    if (!menu.image) return;
+    const imageDoc: ImageDoc = { kind: "menu", menuId: menu.id, dataUrl: menu.image, position: i };
+    batch.set(imagesRef.doc(`menu-${menu.id}`), imageDoc);
+  });
+
+  await batch.commit();
+}
+
+export async function deleteBooth(id: string): Promise<void> {
+  const db = getAdminDb();
+  const ref = boothsCollection().doc(id);
+  const imagesRef = ref.collection(IMAGES_SUBCOLLECTION);
+  const existingImages = await imagesRef.get();
+
+  const batch = db.batch();
+  existingImages.docs.forEach((d) => batch.delete(d.ref));
+  batch.delete(ref);
+  await batch.commit();
+}

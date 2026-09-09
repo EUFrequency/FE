@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import { createId } from "../../_lib/id";
-import { filesToDataUrls } from "../../_lib/files";
+import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
 import type { AdminBooth, MenuItem, TableConfig } from "../../_lib/types";
 import { Button, Input, Label, Textarea } from "../ui";
+
+const MAX_DESCRIPTION_IMAGES = 5;
+const MAX_MENUS = 8;
 
 type Props = {
   initial: AdminBooth | null;
   onCancel: () => void;
-  onSubmit: (booth: AdminBooth) => void;
+  onSubmit: (booth: AdminBooth) => Promise<void>;
 };
 
 function emptyMenu(): MenuItem {
@@ -25,6 +28,7 @@ function defaultTables(): TableConfig[] {
 }
 
 export function BoothForm({ initial, onCancel, onSubmit }: Props) {
+  const [department, setDepartment] = useState(initial?.department ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [ownerName, setOwnerName] = useState(initial?.ownerName ?? "");
   const [ownerPhone, setOwnerPhone] = useState(initial?.ownerPhone ?? "");
@@ -42,9 +46,12 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
     initial?.tables.length ? initial.tables : defaultTables(),
   );
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const validMenus = menus.filter((m) => m.name.trim() && m.price > 0);
   const valid =
+    department.trim() &&
     name.trim() &&
     ownerName.trim() &&
     descriptionText.trim() &&
@@ -53,10 +60,12 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
 
   async function handleDescriptionImages(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
+    const remaining = MAX_DESCRIPTION_IMAGES - descriptionImages.length;
+    if (remaining <= 0) return;
     setUploading(true);
     try {
-      const urls = await filesToDataUrls(fileList);
-      setDescriptionImages((prev) => [...prev, ...urls]);
+      const urls = await resizeImageFiles(Array.from(fileList).slice(0, remaining));
+      setDescriptionImages((prev) => [...prev, ...urls].slice(0, MAX_DESCRIPTION_IMAGES));
     } finally {
       setUploading(false);
     }
@@ -65,24 +74,33 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
   async function handleMenuImage(menuId: string, fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
-    const [url] = await filesToDataUrls([file]);
+    const url = await resizeImageFile(file);
     setMenus((prev) => prev.map((m) => (m.id === menuId ? { ...m, image: url } : m)));
   }
 
-  function submit() {
-    if (!valid) return;
-    onSubmit({
-      id: initial?.id ?? createId("booth"),
-      name: name.trim(),
-      ownerName: ownerName.trim(),
-      ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
-      descriptionText: descriptionText.trim(),
-      descriptionImages,
-      menus: validMenus,
-      minOrder: Number(minOrder),
-      tables: tables.filter((t) => t.capacity > 0),
-      createdAt: initial?.createdAt ?? new Date().toISOString(),
-    });
+  async function submit() {
+    if (!valid || submitting) return;
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        id: initial?.id ?? createId("booth"),
+        department: department.trim(),
+        name: name.trim(),
+        ownerName: ownerName.trim(),
+        ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
+        descriptionText: descriptionText.trim(),
+        descriptionImages,
+        menus: validMenus,
+        minOrder: Number(minOrder),
+        tables: tables.filter((t) => t.capacity > 0),
+        createdAt: initial?.createdAt ?? new Date().toISOString(),
+      });
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -103,6 +121,15 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label className="block">
+          <Label>학과/동아리</Label>
+          <Input
+            className="mt-1.5"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            placeholder="경영학과"
+          />
+        </label>
         <label className="block">
           <Label>주점 이름</Label>
           <Input
@@ -144,7 +171,12 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
 
       {/* 설명 */}
       <div className="mt-6">
-        <Label>설명</Label>
+        <div className="flex items-center justify-between">
+          <Label>설명</Label>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500">
+            이미지 {descriptionImages.length}/{MAX_DESCRIPTION_IMAGES}
+          </span>
+        </div>
         <Textarea
           className="mt-1.5"
           rows={3}
@@ -168,26 +200,29 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
               </button>
             </div>
           ))}
-          <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-black/15 text-xs text-neutral-400 transition hover:border-amber-500/50 dark:border-white/15">
-            {uploading ? "업로드 중" : "+ 이미지"}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => handleDescriptionImages(e.target.files)}
-            />
-          </label>
+          {descriptionImages.length < MAX_DESCRIPTION_IMAGES && (
+            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-black/15 text-xs text-neutral-400 transition hover:border-amber-500/50 dark:border-white/15">
+              {uploading ? "처리 중" : "+ 이미지"}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => handleDescriptionImages(e.target.files)}
+              />
+            </label>
+          )}
         </div>
       </div>
 
       {/* 메뉴 정보 */}
       <div className="mt-6">
         <div className="flex items-center justify-between">
-          <Label>메뉴 정보</Label>
+          <Label>메뉴 정보 ({menus.length}/{MAX_MENUS})</Label>
           <Button
             variant="secondary"
             type="button"
+            disabled={menus.length >= MAX_MENUS}
             onClick={() => setMenus((prev) => [...prev, emptyMenu()])}
           >
             + 메뉴 추가
@@ -346,13 +381,16 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
       </div>
       </div>
 
-      <div className="flex flex-shrink-0 justify-end gap-2 border-t border-black/5 px-5 py-4 dark:border-white/5">
-        <Button variant="secondary" type="button" onClick={onCancel}>
-          취소
-        </Button>
-        <Button variant="primary" type="button" disabled={!valid} onClick={submit}>
-          {initial ? "수정 저장" : "등록하기"}
-        </Button>
+      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-black/5 px-5 py-4 dark:border-white/5">
+        <span className="text-xs text-red-500">{submitError}</span>
+        <div className="flex flex-shrink-0 gap-2">
+          <Button variant="secondary" type="button" disabled={submitting} onClick={onCancel}>
+            취소
+          </Button>
+          <Button variant="primary" type="button" disabled={!valid || submitting} onClick={submit}>
+            {submitting ? "저장 중..." : initial ? "수정 저장" : "등록하기"}
+          </Button>
+        </div>
       </div>
     </div>
   );

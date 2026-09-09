@@ -41,7 +41,13 @@ function tables(...pairs: [number, number][]): TableConfig[] {
   }));
 }
 
-/** 축제편 더미 주점 데이터를 관리자용 주점 데이터로 변환 (초기 시드값) */
+/**
+ * 축제편 더미 주점 데이터를 관리자용 주점 데이터로 변환.
+ *
+ * 주점은 (시즌/예약과 달리) Firestore 컬렉션이 비어 있어도 자동으로 채우지 않음 -
+ * 실제 주점을 관리자 페이지에서 직접 등록하는 흐름을 타는 게 맞아서.
+ * 참고/테스트용 샘플로만 남겨둠.
+ */
 export function buildSeedBooths(): AdminBooth[] {
   const defaultTables: TableConfig[][] = [
     tables([2, 4], [4, 3], [6, 1]),
@@ -52,6 +58,7 @@ export function buildSeedBooths(): AdminBooth[] {
 
   return BOOTHS.map((booth, i) => ({
     id: booth.id,
+    department: booth.department,
     name: booth.name,
     ownerName: `${booth.department} 대표`,
     ownerPhone: i % 2 === 0 ? "010-1234-5678" : null,
@@ -70,6 +77,7 @@ export function buildSeedBooths(): AdminBooth[] {
   }));
 }
 
+/** Firestore의 seasons 컬렉션이 비어 있을 때(최초 1회) 자동으로 채워 넣는 시드 데이터 */
 export function buildSeedSeasons(): Season[] {
   return [
     {
@@ -111,6 +119,7 @@ export function buildSeedSeasons(): Season[] {
   ];
 }
 
+/** Firestore의 reservations 컬렉션이 비어 있을 때(최초 1회) 자동으로 채워 넣는 시드 데이터 */
 export function buildSeedReservations(): Reservation[] {
   return [
     buildReservation({
@@ -119,6 +128,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "사장님 주점",
       representativeName: "김민준",
       phone: "010-1111-2222",
+      bank: "국민은행",
+      accountNumber: "123456-78-901234",
       department: "미술학과",
       headcount: 3,
       date: "2026-09-10",
@@ -140,6 +151,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "버그 펍",
       representativeName: "이서연",
       phone: "010-2222-3333",
+      bank: "신한은행",
+      accountNumber: "110-234-567890",
       department: "컴퓨터공학과",
       headcount: 4,
       date: "2026-09-10",
@@ -159,6 +172,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "근육 주점",
       representativeName: "박도윤",
       phone: "010-3333-4444",
+      bank: "카카오뱅크",
+      accountNumber: "3333-01-2345678",
       department: "체육교육과",
       headcount: 2,
       date: "2026-09-11",
@@ -180,6 +195,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "응급 주점",
       representativeName: "최지우",
       phone: "010-4444-5555",
+      bank: "우리은행",
+      accountNumber: "1002-345-678901",
       department: "간호학과",
       headcount: 5,
       date: "2026-09-12",
@@ -199,6 +216,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "사장님 주점",
       representativeName: "정하윤",
       phone: "010-5555-6666",
+      bank: "하나은행",
+      accountNumber: "123-456789-01234",
       department: "법학과",
       headcount: 4,
       date: "2026-09-10",
@@ -219,6 +238,8 @@ export function buildSeedReservations(): Reservation[] {
       boothName: "버그 펍",
       representativeName: "오세훈",
       phone: "010-7777-8888",
+      bank: "토스뱅크",
+      accountNumber: "1000-1234-5678",
       department: "전자공학과",
       headcount: 2,
       date: "2026-09-11",

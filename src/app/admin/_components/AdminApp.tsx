@@ -18,6 +18,7 @@ import { ReservationsTab } from "./tabs/ReservationsTab";
 import { BoothsTab } from "./tabs/BoothsTab";
 import { LayoutTab } from "./tabs/LayoutTab";
 import { EventRequestsTab } from "./tabs/EventRequestsTab";
+import type { AdminBooth, Reservation, Season } from "../_lib/types";
 
 const DEFAULT_TAB: AdminTabKey = "dashboard";
 const TAB_KEYS = ADMIN_TABS.map((t) => t.key);
@@ -26,7 +27,23 @@ function isTabKey(value: string | null): value is AdminTabKey {
   return !!value && (TAB_KEYS as string[]).includes(value);
 }
 
-export function AdminApp() {
+type Props = {
+  initialBooths: AdminBooth[];
+  boothsError: string | null;
+  initialSeasons: Season[];
+  seasonsError: string | null;
+  initialReservations: Reservation[];
+  reservationsError: string | null;
+};
+
+export function AdminApp({
+  initialBooths,
+  boothsError,
+  initialSeasons,
+  seasonsError,
+  initialReservations,
+  reservationsError,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -43,7 +60,14 @@ export function AdminApp() {
   const currentLabel = ADMIN_TABS.find((t) => t.key === tab)?.label ?? "";
 
   return (
-    <AdminStoreProvider>
+    <AdminStoreProvider
+      initialBooths={initialBooths}
+      boothsError={boothsError}
+      initialSeasons={initialSeasons}
+      seasonsError={seasonsError}
+      initialReservations={initialReservations}
+      reservationsError={reservationsError}
+    >
       <div className="flex min-h-screen bg-neutral-100 dark:bg-[#0b0805]">
         <Sidebar active={tab} onSelect={setTab} />
 

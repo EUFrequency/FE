@@ -1,9 +1,10 @@
 "use client";
 
-import type { Booth } from "../data";
+import type { FestivalBooth } from "../_lib/palette";
+import { MenuThumb } from "./MenuThumb";
 
 type Props = {
-  booth: Booth;
+  booth: FestivalBooth;
   onClose: () => void;
   onReserve: () => void;
 };
@@ -32,8 +33,22 @@ export function BoothDetailModal({ booth, onClose, onReserve }: Props) {
             {booth.name}
           </h2>
           <p className="mt-4 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
-            {booth.description}
+            {booth.descriptionText}
           </p>
+
+          {booth.descriptionImages.length > 0 && (
+            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+              {booth.descriptionImages.map((src, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={src}
+                  alt=""
+                  className="h-24 w-24 flex-shrink-0 rounded-xl object-cover"
+                />
+              ))}
+            </div>
+          )}
 
           <div className="mt-5 inline-block rounded-full border border-amber-500/50 bg-amber-500/10 px-4 py-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
             최소 주문금액 {booth.minOrder.toLocaleString()}원
@@ -49,17 +64,7 @@ export function BoothDetailModal({ booth, onClose, onReserve }: Props) {
                   key={menu.id}
                   className="overflow-hidden rounded-2xl border border-black/5 bg-white dark:border-white/5 dark:bg-white/[0.03]"
                 >
-                  <div
-                    className="flex h-40 items-center justify-center bg-gradient-to-br from-amber-500/20 to-neutral-800/40 text-6xl"
-                    style={{
-                      backgroundImage: `linear-gradient(135deg, ${booth.accentColor}22, ${booth.accentColor}05), url("${menu.image}")`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }}
-                    aria-hidden
-                  >
-                    <span className="drop-shadow">{menu.emoji}</span>
-                  </div>
+                  <MenuThumb image={menu.image} accentColor={booth.accentColor} />
                   <div className="flex items-start justify-between gap-3 p-4">
                     <div>
                       <div className="font-semibold text-neutral-900 dark:text-neutral-50">

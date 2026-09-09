@@ -32,6 +32,9 @@ export type Reservation = {
   headcount: number;
   date: string;
   time: string;
+  /** 환불 등에 쓰일 대표 예약자 본인 계좌 정보 */
+  bank: string;
+  accountNumber: string;
   matching: boolean;
   /** 과팅 신청 시 우리 팀 성별 */
   matchingGender?: MatchingGender;
@@ -65,6 +68,8 @@ export type TableConfig = {
 
 export type AdminBooth = {
   id: string;
+  /** 이 주점을 운영하는 학과/동아리 등 (배치도·공개 페이지 표시용) */
+  department: string;
   name: string;
   ownerName: string;
   ownerPhone: string | null;

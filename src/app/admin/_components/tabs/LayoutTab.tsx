@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminStore } from "../../_lib/store";
-import { persistSeasonLayout } from "../../_lib/layout-remote";
+import { getLayoutAction, saveLayoutAction } from "../../_lib/layout-actions";
 import type { SeasonLayout } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select } from "../ui";
 
@@ -72,28 +72,53 @@ function resizeCells(
   return cells;
 }
 
+type LoadStatus = "loading" | "loaded" | "error";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 function LayoutEditor({ seasonId }: { seasonId: string }) {
-  const { state, dispatch } = useAdminStore();
-  const saved = state.layouts[seasonId];
+  const { state } = useAdminStore();
   const boothMap = useMemo(
     () => new Map(state.booths.map((b) => [b.id, b])),
     [state.booths],
   );
 
-  const [rows, setRows] = useState(saved?.rows ?? 4);
-  const [cols, setCols] = useState(saved?.cols ?? 4);
-  const [cells, setCells] = useState<Record<string, string | null>>(
-    saved?.cells ?? {},
-  );
-  const [hasGrid, setHasGrid] = useState(!!saved);
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [rows, setRows] = useState(4);
+  const [cols, setCols] = useState(4);
+  const [cells, setCells] = useState<Record<string, string | null>>({});
+  const [hasGrid, setHasGrid] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [selectedBoothId, setSelectedBoothId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(
-    saved?.updatedAt ?? null,
-  );
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  // 시즌이 바뀔 때(=이 컴포넌트가 새로 마운트될 때) Firestore에서 배치도를 불러옴.
+  // loadStatus는 useState 초기값이 이미 "loading"이라 여기서 다시 set할 필요 없음
+  // (이 컴포넌트는 시즌마다 key={seasonId}로 새로 마운트됨).
+  useEffect(() => {
+    let cancelled = false;
+    getLayoutAction(seasonId).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setLoadStatus("error");
+        setLoadError(result.error);
+        return;
+      }
+      const saved = result.data;
+      if (saved) {
+        setRows(saved.rows);
+        setCols(saved.cols);
+        setCells(saved.cells);
+        setHasGrid(true);
+        setLastSavedAt(saved.updatedAt);
+      }
+      setLoadStatus("loaded");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [seasonId]);
 
   const placedBoothIds = useMemo(
     () => new Set(Object.values(cells).filter(Boolean) as string[]),
@@ -152,15 +177,26 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
     const layout: SeasonLayout = { rows, cols, cells, updatedAt: new Date().toISOString() };
     setSaveStatus("saving");
     try {
-      // 지금은 로컬 스토어에만 반영. 나중에 이 함수 내부가 실제 Firebase 쓰기로 바뀔 예정.
-      await persistSeasonLayout(seasonId, layout);
-      dispatch({ type: "layout/save", payload: { seasonId, layout } });
+      const result = await saveLayoutAction(seasonId, layout);
+      if (!result.ok) throw new Error(result.error);
       setSaveStatus("saved");
       setLastSavedAt(layout.updatedAt);
       setDirty(false);
     } catch {
       setSaveStatus("error");
     }
+  }
+
+  if (loadStatus === "loading") {
+    return <p className="text-sm text-neutral-400 dark:text-neutral-500">불러오는 중...</p>;
+  }
+
+  if (loadStatus === "error") {
+    return (
+      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+        배치도를 불러오지 못했습니다. {loadError}
+      </div>
+    );
   }
 
   return (
@@ -205,7 +241,7 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
       </Card>
       <p className="-mt-3 text-xs text-neutral-400 dark:text-neutral-500">
         드래그 앤 드롭이나 격자 편집은 화면에만 임시로 반영되며, &quot;저장하기&quot;를 눌러야
-        실제로 반영(추후 파이어베이스 연동 예정)됩니다.
+        Firestore에 실제로 반영됩니다.
       </p>
 
       {/* 팔레트 */}

@@ -1,3 +1,9 @@
+/**
+ * 이 파일의 BOOTHS/Booth/Menu는 더 이상 /festival 페이지가 직접 쓰지 않음
+ * (실제 주점 데이터는 Firestore에서 옴 - festival/page.tsx 참고).
+ * 관리자 쪽 시드 데이터(admin/_lib/mock-data.ts)가 참고용 더미로만 계속 사용 중.
+ * 아래 DEPARTMENTS ~ ADMIN_ACCOUNT는 지금도 예약 폼에서 그대로 쓰임.
+ */
 export type BoothId = "boss" | "bug" | "muscle" | "er";
 
 export type Menu = {

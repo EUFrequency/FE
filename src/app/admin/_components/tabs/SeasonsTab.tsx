@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../_lib/store";
 import { createId } from "../../_lib/id";
+import { activateSeasonAction, addSeasonAction, listSeasonsAction } from "../../_lib/season-actions";
 import type { Season, SeasonStatus, SeasonType } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle } from "../ui";
 
@@ -24,9 +25,12 @@ const STATUS_TONE: Record<SeasonStatus, "amber" | "green" | "neutral"> = {
 };
 
 export function SeasonsTab() {
-  const { state, dispatch } = useAdminStore();
+  const { state, dispatch, seasonsError } = useAdminStore();
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const years = useMemo(() => {
     const set = new Set(state.seasons.map((s) => s.year));
@@ -38,6 +42,41 @@ export function SeasonsTab() {
       .filter((s) => yearFilter === "all" || s.year === Number(yearFilter))
       .sort((a, b) => b.startDate.localeCompare(a.startDate));
   }, [state.seasons, yearFilter]);
+
+  async function handleActivate(id: string) {
+    setRowError(null);
+    setActivatingId(id);
+    try {
+      const result = await activateSeasonAction(id);
+      if (!result.ok) throw new Error(result.error);
+      dispatch({ type: "seasons/activate", payload: { id } });
+    } catch (e) {
+      setRowError(e instanceof Error ? e.message : "활성화에 실패했습니다.");
+    } finally {
+      setActivatingId(null);
+    }
+  }
+
+  async function handleRefresh() {
+    setRowError(null);
+    setRefreshing(true);
+    try {
+      const result = await listSeasonsAction();
+      if (!result.ok) throw new Error(result.error);
+      dispatch({ type: "seasons/replaceAll", payload: result.data });
+    } catch (e) {
+      setRowError(e instanceof Error ? e.message : "새로고침에 실패했습니다.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function handleAdd(season: Season) {
+    const result = await addSeasonAction(season);
+    if (!result.ok) throw new Error(result.error);
+    dispatch({ type: "seasons/add", payload: season });
+    setShowAddForm(false);
+  }
 
   return (
     <div className="space-y-5">
@@ -58,21 +97,28 @@ export function SeasonsTab() {
               </option>
             ))}
           </Select>
+          <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}>
+            {refreshing ? "새로고침 중..." : "새로고침"}
+          </Button>
           <Button variant="primary" onClick={() => setShowAddForm((v) => !v)}>
             {showAddForm ? "닫기" : "+ 새 시즌 추가"}
           </Button>
         </div>
       </div>
 
-      {showAddForm && (
-        <AddSeasonForm
-          onCancel={() => setShowAddForm(false)}
-          onSubmit={(season) => {
-            dispatch({ type: "seasons/add", payload: season });
-            setShowAddForm(false);
-          }}
-        />
+      {seasonsError && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
+          <div className="font-semibold">Firebase 연동이 아직 설정되지 않았습니다.</div>
+          <div className="mt-1 text-xs leading-5 opacity-90">{seasonsError}</div>
+        </div>
       )}
+      {rowError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
+          {rowError}
+        </div>
+      )}
+
+      {showAddForm && <AddSeasonForm onCancel={() => setShowAddForm(false)} onSubmit={handleAdd} />}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -120,14 +166,10 @@ export function SeasonsTab() {
                     ) : (
                       <Button
                         variant="secondary"
-                        onClick={() =>
-                          dispatch({
-                            type: "seasons/activate",
-                            payload: { id: season.id },
-                          })
-                        }
+                        disabled={activatingId === season.id}
+                        onClick={() => handleActivate(season.id)}
                       >
-                        활성화
+                        {activatingId === season.id ? "처리 중..." : "활성화"}
                       </Button>
                     )}
                   </td>
@@ -160,7 +202,7 @@ function AddSeasonForm({
   onSubmit,
 }: {
   onCancel: () => void;
-  onSubmit: (season: Season) => void;
+  onSubmit: (season: Season) => Promise<void>;
 }) {
   const currentYear = new Date().getFullYear();
   const [name, setName] = useState("");
@@ -168,8 +210,34 @@ function AddSeasonForm({
   const [year, setYear] = useState(currentYear);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const valid = name.trim() && startDate && endDate && startDate <= endDate;
+
+  async function submit() {
+    if (!valid || submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const status =
+        today < startDate ? "upcoming" : today > endDate ? "ended" : "ongoing";
+      await onSubmit({
+        id: createId("season"),
+        name: name.trim(),
+        type,
+        year,
+        startDate,
+        endDate,
+        status,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "추가에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <Card className="p-4">
@@ -225,29 +293,13 @@ function AddSeasonForm({
           </label>
         </div>
       </div>
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel}>
+        <Button variant="secondary" disabled={submitting} onClick={onCancel}>
           취소
         </Button>
-        <Button
-          variant="primary"
-          disabled={!valid}
-          onClick={() => {
-            const today = new Date().toISOString().slice(0, 10);
-            const status =
-              today < startDate ? "upcoming" : today > endDate ? "ended" : "ongoing";
-            onSubmit({
-              id: createId("season"),
-              name: name.trim(),
-              type,
-              year,
-              startDate,
-              endDate,
-              status,
-            });
-          }}
-        >
-          추가
+        <Button variant="primary" disabled={!valid || submitting} onClick={submit}>
+          {submitting ? "추가 중..." : "추가"}
         </Button>
       </div>
     </Card>

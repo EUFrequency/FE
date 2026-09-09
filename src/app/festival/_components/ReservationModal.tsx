@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ADMIN_ACCOUNT,
   BANKS,
@@ -8,11 +8,13 @@ import {
   FESTIVAL_DATES,
   FESTIVAL_TIMES,
   MATCHING_FEE_PER_PERSON,
-  type Booth,
 } from "../data";
+import type { FestivalBooth } from "../_lib/palette";
+import { submitReservationAction } from "../_lib/reservation-actions";
+import { MenuThumb } from "./MenuThumb";
 
 type Props = {
-  booth: Booth;
+  booth: FestivalBooth;
   onClose: () => void;
   onSubmit: () => void;
 };
@@ -58,17 +60,8 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
   const [form, setForm] = useState<Form>(initialForm);
   const [showMatchingInfo, setShowMatchingInfo] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  // Keep participantDepts length synced to headcount, and index 0 = rep dept
-  useEffect(() => {
-    setForm((f) => {
-      const next = [...f.participantDepts];
-      while (next.length < f.headcount) next.push("");
-      next.length = f.headcount;
-      next[0] = f.representativeDept;
-      return { ...f, participantDepts: next };
-    });
-  }, [form.headcount, form.representativeDept]);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const menuTotal = useMemo(
     () =>
@@ -100,8 +93,40 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
 
   const step2Valid = form.paymentConfirmed;
 
+  // participantDepts는 headcount만큼 길이를 맞추고, index 0은 항상 대표자 학과와 같게 유지.
+  // (헤드카운트/대표자 학과가 바뀔 때 이 함수 안에서 같이 조정 - effect로 뒤늦게 동기화하지 않음)
+  const resizeParticipantDepts = (
+    prev: string[],
+    headcount: number,
+    representativeDept: string,
+  ) => {
+    const next = [...prev];
+    while (next.length < headcount) next.push("");
+    next.length = headcount;
+    next[0] = representativeDept;
+    return next;
+  };
+
   const setField = <K extends keyof Form>(key: K, value: Form[K]) =>
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => {
+      if (key === "headcount") {
+        const headcount = value as number;
+        return {
+          ...f,
+          headcount,
+          participantDepts: resizeParticipantDepts(f.participantDepts, headcount, f.representativeDept),
+        };
+      }
+      if (key === "representativeDept") {
+        const representativeDept = value as string;
+        return {
+          ...f,
+          representativeDept,
+          participantDepts: resizeParticipantDepts(f.participantDepts, f.headcount, representativeDept),
+        };
+      }
+      return { ...f, [key]: value };
+    });
 
   const toggleMatching = () => {
     if (!form.matchingEnabled) {
@@ -140,6 +165,49 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
 
   const selectedDateLabel =
     FESTIVAL_DATES.find((d) => d.value === form.date)?.label ?? "";
+
+  const handleFinalSubmit = async () => {
+    if (!step2Valid || submitting) return;
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const orderItems = booth.menus
+        .filter((m) => (form.quantities[m.id] ?? 0) > 0)
+        .map((m) => ({
+          menuName: m.name,
+          unitPrice: m.price,
+          quantity: form.quantities[m.id],
+        }));
+
+      const result = await submitReservationAction({
+        boothId: booth.id,
+        boothName: booth.name,
+        representativeName: form.name.trim(),
+        phone: form.phone.trim(),
+        department: form.representativeDept,
+        headcount: form.headcount,
+        date: form.date,
+        time: form.time,
+        bank: form.bank,
+        accountNumber: form.accountNumber.trim(),
+        matching: form.matchingEnabled,
+        matchingGender: form.matchingEnabled ? (form.gender || undefined) : undefined,
+        participantDepartments: form.matchingEnabled ? form.participantDepts : undefined,
+        orderItems,
+        menuAmount: menuTotal,
+        matchingFee,
+        totalAmount: grandTotal,
+      });
+
+      if (!result.ok) {
+        setSubmitError(result.error);
+        return;
+      }
+      onSubmit();
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="pointer-events-auto flex h-full flex-col">
@@ -219,14 +287,19 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
                 다음 단계 →
               </button>
             ) : (
-              <button
-                type="button"
-                disabled={!step2Valid}
-                onClick={onSubmit}
-                className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-500/40"
-              >
-                예약 최종 제출
-              </button>
+              <>
+                {submitError && (
+                  <p className="mb-2 text-center text-xs text-red-500">{submitError}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={!step2Valid || submitting}
+                  onClick={handleFinalSubmit}
+                  className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-500/40"
+                >
+                  {submitting ? "접수 중..." : "예약 최종 제출"}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -258,7 +331,7 @@ function StepDots({ step }: { step: 1 | 2 }) {
 /* ---------- STEP 1 ---------- */
 
 type Step1Props = {
-  booth: Booth;
+  booth: FestivalBooth;
   form: Form;
   setField: <K extends keyof Form>(k: K, v: Form[K]) => void;
   toggleMatching: () => void;
@@ -464,17 +537,7 @@ function Step1({
               key={menu.id}
               className="overflow-hidden rounded-2xl border border-black/5 bg-white dark:border-white/5 dark:bg-white/[0.03]"
             >
-              <div
-                className="flex h-40 items-center justify-center text-6xl"
-                style={{
-                  backgroundImage: `linear-gradient(135deg, ${booth.accentColor}22, ${booth.accentColor}05), url("${menu.image}")`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}
-                aria-hidden
-              >
-                <span className="drop-shadow">{menu.emoji}</span>
-              </div>
+              <MenuThumb image={menu.image} accentColor={booth.accentColor} />
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -511,7 +574,7 @@ function Step1({
 /* ---------- STEP 2 ---------- */
 
 type Step2Props = {
-  booth: Booth;
+  booth: FestivalBooth;
   form: Form;
   selectedDateLabel: string;
   menuTotal: number;
