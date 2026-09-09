@@ -6,8 +6,9 @@ import { AdminApp } from "./_components/AdminApp";
 import { listBoothsLight } from "./_lib/firestore-booths";
 import { listSeasons } from "./_lib/firestore-seasons";
 import { listReservations } from "./_lib/firestore-reservations";
+import { listAccounts } from "./_lib/firestore-accounts";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
-import type { AdminBooth, Reservation, Season } from "./_lib/types";
+import type { Account, AdminBooth, Reservation, Season } from "./_lib/types";
 
 export const metadata: Metadata = {
   title: "관리자 - Frequency",
@@ -32,6 +33,8 @@ export default async function AdminPage() {
   let seasonsError: string | null = null;
   let initialReservations: Reservation[] = [];
   let reservationsError: string | null = null;
+  let initialAccounts: Account[] = [];
+  let accountsError: string | null = null;
 
   await Promise.all([
     listBoothsLight()
@@ -43,6 +46,9 @@ export default async function AdminPage() {
     listReservations()
       .then((r) => (initialReservations = r))
       .catch((e) => (reservationsError = errorMessage(e, "예약 목록을 불러오지 못했습니다."))),
+    listAccounts()
+      .then((r) => (initialAccounts = r))
+      .catch((e) => (accountsError = errorMessage(e, "계좌 목록을 불러오지 못했습니다."))),
   ]);
 
   return (
@@ -54,6 +60,8 @@ export default async function AdminPage() {
         seasonsError={seasonsError}
         initialReservations={initialReservations}
         reservationsError={reservationsError}
+        initialAccounts={initialAccounts}
+        accountsError={accountsError}
       />
     </Suspense>
   );

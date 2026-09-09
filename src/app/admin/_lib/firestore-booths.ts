@@ -23,6 +23,7 @@ type BoothDocData = {
   minOrder: number;
   tables: AdminBooth["tables"];
   menus: Omit<MenuItem, "image">[];
+  accountId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -43,6 +44,7 @@ function toLightBooth(id: string, data: BoothDocData): AdminBooth {
     menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
     minOrder: data.minOrder,
     tables: data.tables ?? [],
+    accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
 }
@@ -83,6 +85,7 @@ async function hydrateBoothWithImages(
     })),
     minOrder: data.minOrder,
     tables: data.tables ?? [],
+    accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
 }
@@ -124,6 +127,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
     minOrder: booth.minOrder,
     tables: booth.tables,
     menus: menusMeta,
+    accountId: booth.accountId,
     createdAt: booth.createdAt,
     updatedAt: now,
   };

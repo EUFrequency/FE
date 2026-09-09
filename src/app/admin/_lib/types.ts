@@ -78,6 +78,23 @@ export type AdminBooth = {
   menus: MenuItem[];
   minOrder: number;
   tables: TableConfig[];
+  /**
+   * 이 주점의 입금 계좌 (accounts 컬렉션 문서 id). null이면 시스템 대표 계좌를 그대로 씀.
+   * 올해는 보통 다 null(모임통장 하나로 운영)이고, 내년에 주점별로 따로 관리하게 되면
+   * 여기에 각자의 계좌를 지정하면 됨.
+   */
+  accountId: string | null;
+  createdAt: string;
+};
+
+/** 입금 계좌 - 시스템 대표 계좌 1개(isDefault) + 주점별 개별 계좌들을 같은 테이블에서 관리 */
+export type Account = {
+  id: string;
+  bank: string;
+  accountNumber: string;
+  holderName: string;
+  /** 이 계좌가 시스템 전체 대표 계좌인지. 동시에 하나만 true */
+  isDefault: boolean;
   createdAt: string;
 };
 

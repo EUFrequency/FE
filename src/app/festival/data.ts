@@ -2,7 +2,7 @@
  * 이 파일의 BOOTHS/Booth/Menu는 더 이상 /festival 페이지가 직접 쓰지 않음
  * (실제 주점 데이터는 Firestore에서 옴 - festival/page.tsx 참고).
  * 관리자 쪽 시드 데이터(admin/_lib/mock-data.ts)가 참고용 더미로만 계속 사용 중.
- * 아래 DEPARTMENTS ~ ADMIN_ACCOUNT는 지금도 예약 폼에서 그대로 쓰임.
+ * 아래 DEPARTMENTS ~ MATCHING_FEE_PER_PERSON은 지금도 예약 폼에서 그대로 쓰임.
  */
 export type BoothId = "boss" | "bug" | "muscle" | "er";
 
@@ -236,8 +236,5 @@ export const FESTIVAL_TIMES = [
 
 export const MATCHING_FEE_PER_PERSON = 3000;
 
-export const ADMIN_ACCOUNT = {
-  bank: "카카오뱅크",
-  holder: "학생처",
-  number: "3333-12-3456789",
-};
+// 입금 계좌(ADMIN_ACCOUNT)는 더 이상 여기 하드코딩하지 않음 - Firestore의 accounts
+// 컬렉션에서 관리자가 등록한 대표/주점별 계좌를 그대로 씀 (관리자 페이지 대시보드 참고).

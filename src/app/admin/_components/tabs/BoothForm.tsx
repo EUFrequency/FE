@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createId } from "../../_lib/id";
 import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
 import type { AdminBooth, MenuItem, TableConfig } from "../../_lib/types";
+import { AccountManager } from "../AccountManager";
 import { Button, Input, Label, Textarea } from "../ui";
 
 const MAX_DESCRIPTION_IMAGES = 5;
@@ -45,6 +46,7 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
   const [tables, setTables] = useState<TableConfig[]>(
     initial?.tables.length ? initial.tables : defaultTables(),
   );
+  const [accountId, setAccountId] = useState<string | null>(initial?.accountId ?? null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -94,6 +96,7 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
         menus: validMenus,
         minOrder: Number(minOrder),
         tables: tables.filter((t) => t.capacity > 0),
+        accountId,
         createdAt: initial?.createdAt ?? new Date().toISOString(),
       });
     } catch (e) {
@@ -378,6 +381,14 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 입금 계좌 */}
+      <div className="mt-6">
+        <AccountManager
+          title="입금 계좌"
+          selection={{ selectedAccountId: accountId, onSelect: setAccountId }}
+        />
       </div>
       </div>
 

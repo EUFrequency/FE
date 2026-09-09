@@ -73,6 +73,7 @@ export function buildSeedBooths(): AdminBooth[] {
     })),
     minOrder: booth.minOrder,
     tables: defaultTables[i] ?? tables([4, 2]),
+    accountId: null,
     createdAt: new Date("2026-08-20").toISOString(),
   }));
 }

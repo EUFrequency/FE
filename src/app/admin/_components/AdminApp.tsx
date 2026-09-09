@@ -18,7 +18,7 @@ import { ReservationsTab } from "./tabs/ReservationsTab";
 import { BoothsTab } from "./tabs/BoothsTab";
 import { LayoutTab } from "./tabs/LayoutTab";
 import { EventRequestsTab } from "./tabs/EventRequestsTab";
-import type { AdminBooth, Reservation, Season } from "../_lib/types";
+import type { Account, AdminBooth, Reservation, Season } from "../_lib/types";
 
 const DEFAULT_TAB: AdminTabKey = "dashboard";
 const TAB_KEYS = ADMIN_TABS.map((t) => t.key);
@@ -34,6 +34,8 @@ type Props = {
   seasonsError: string | null;
   initialReservations: Reservation[];
   reservationsError: string | null;
+  initialAccounts: Account[];
+  accountsError: string | null;
 };
 
 export function AdminApp({
@@ -43,6 +45,8 @@ export function AdminApp({
   seasonsError,
   initialReservations,
   reservationsError,
+  initialAccounts,
+  accountsError,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,6 +71,8 @@ export function AdminApp({
       seasonsError={seasonsError}
       initialReservations={initialReservations}
       reservationsError={reservationsError}
+      initialAccounts={initialAccounts}
+      accountsError={accountsError}
     >
       <div className="flex min-h-screen bg-neutral-100 dark:bg-[#0b0805]">
         <Sidebar active={tab} onSelect={setTab} />

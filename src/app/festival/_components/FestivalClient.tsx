@@ -8,7 +8,7 @@ import { SuccessDialog } from "./SuccessDialog";
 import { Modal } from "./Modal";
 import { getPublicBoothAction } from "../_lib/booth-actions";
 import { accentFor, withAccents, type FestivalBooth } from "../_lib/palette";
-import type { AdminBooth } from "@/app/admin/_lib/types";
+import type { Account, AdminBooth } from "@/app/admin/_lib/types";
 
 type Flow = "closed" | "detail" | "reservation" | "success";
 
@@ -18,8 +18,9 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
 
   const [flow, setFlow] = useState<Flow>("closed");
   const [selectedName, setSelectedName] = useState<string | null>(null);
-  // 주점을 눌렀을 때만 그 주점의 이미지 포함 전체 정보를 따로 불러와 여기 담음
+  // 주점을 눌렀을 때만 그 주점의 이미지 포함 전체 정보 + 입금 계좌를 따로 불러와 여기 담음
   const [boothDetail, setBoothDetail] = useState<FestivalBooth | null>(null);
+  const [paymentAccount, setPaymentAccount] = useState<Account | null>(null);
   const [loadingBoothId, setLoadingBoothId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
     setSelectedName(booth.name);
     setFlow("detail");
     setBoothDetail(null);
+    setPaymentAccount(null);
     setLoadError(null);
     setLoadingBoothId(booth.id);
     try {
@@ -35,7 +37,8 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
         setLoadError(result.error);
         return;
       }
-      setBoothDetail({ ...result.data, ...accentFor(index) });
+      setBoothDetail({ ...result.data.booth, ...accentFor(index) });
+      setPaymentAccount(result.data.account);
     } finally {
       setLoadingBoothId(null);
     }
@@ -44,6 +47,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
   const closeAll = () => {
     setFlow("closed");
     setBoothDetail(null);
+    setPaymentAccount(null);
     setSelectedName(null);
     setLoadError(null);
   };
@@ -97,6 +101,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
         {boothDetail && (
           <ReservationModal
             booth={boothDetail}
+            account={paymentAccount}
             onClose={closeAll}
             onSubmit={() => setFlow("success")}
           />

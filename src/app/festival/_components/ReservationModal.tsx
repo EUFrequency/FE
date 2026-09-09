@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  ADMIN_ACCOUNT,
   BANKS,
   DEPARTMENTS,
   FESTIVAL_DATES,
@@ -12,9 +11,12 @@ import {
 import type { FestivalBooth } from "../_lib/palette";
 import { submitReservationAction } from "../_lib/reservation-actions";
 import { MenuThumb } from "./MenuThumb";
+import type { Account } from "@/app/admin/_lib/types";
 
 type Props = {
   booth: FestivalBooth;
+  /** 이 주점에 실제로 표시할 입금 계좌. 아직 관리자가 계좌를 등록하지 않았으면 null */
+  account: Account | null;
   onClose: () => void;
   onSubmit: () => void;
 };
@@ -55,7 +57,7 @@ function initialForm(): Form {
   };
 }
 
-export function ReservationModal({ booth, onClose, onSubmit }: Props) {
+export function ReservationModal({ booth, account, onClose, onSubmit }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [form, setForm] = useState<Form>(initialForm);
   const [showMatchingInfo, setShowMatchingInfo] = useState(false);
@@ -91,7 +93,7 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
         form.participantDepts.every((d) => d && d.length > 0))) &&
     meetsMinOrder;
 
-  const step2Valid = form.paymentConfirmed;
+  const step2Valid = form.paymentConfirmed && !!account;
 
   // participantDepts는 headcount만큼 길이를 맞추고, index 0은 항상 대표자 학과와 같게 유지.
   // (헤드카운트/대표자 학과가 바뀔 때 이 함수 안에서 같이 조정 - effect로 뒤늦게 동기화하지 않음)
@@ -154,8 +156,9 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
   };
 
   const copyAccount = async () => {
+    if (!account) return;
     try {
-      await navigator.clipboard.writeText(ADMIN_ACCOUNT.number);
+      await navigator.clipboard.writeText(account.accountNumber);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -253,6 +256,7 @@ export function ReservationModal({ booth, onClose, onSubmit }: Props) {
           ) : (
             <Step2
               booth={booth}
+              account={account}
               form={form}
               selectedDateLabel={selectedDateLabel}
               menuTotal={menuTotal}
@@ -575,6 +579,7 @@ function Step1({
 
 type Step2Props = {
   booth: FestivalBooth;
+  account: Account | null;
   form: Form;
   selectedDateLabel: string;
   menuTotal: number;
@@ -587,6 +592,7 @@ type Step2Props = {
 
 function Step2({
   booth,
+  account,
   form,
   selectedDateLabel,
   menuTotal,
@@ -701,30 +707,37 @@ function Step2({
 
       <section>
         <SectionTitle>입금 계좌</SectionTitle>
-        <div className="mt-4 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            {ADMIN_ACCOUNT.bank} · 예금주: {ADMIN_ACCOUNT.holder}
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="font-mono text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-              {ADMIN_ACCOUNT.number}
+        {account ? (
+          <div className="mt-4 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">
+              {account.bank} · 예금주: {account.holderName}
             </div>
-            <button
-              type="button"
-              onClick={copyAccount}
-              className="h-9 rounded-full border border-amber-500/50 bg-amber-500/10 px-4 text-xs font-medium text-amber-600 transition hover:bg-amber-500/20 dark:text-amber-400"
-            >
-              {copied ? "복사됨" : "복사"}
-            </button>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="font-mono text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {account.accountNumber}
+              </div>
+              <button
+                type="button"
+                onClick={copyAccount}
+                className="h-9 rounded-full border border-amber-500/50 bg-amber-500/10 px-4 text-xs font-medium text-amber-600 transition hover:bg-amber-500/20 dark:text-amber-400"
+              >
+                {copied ? "복사됨" : "복사"}
+              </button>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+              위 계좌로{" "}
+              <span className="font-semibold text-amber-600 dark:text-amber-400">
+                {grandTotal.toLocaleString()}원
+              </span>
+              을 입금해주세요. 입금자명은 대표자 이름으로 해주세요.
+            </p>
           </div>
-          <p className="mt-3 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-            위 계좌로{" "}
-            <span className="font-semibold text-amber-600 dark:text-amber-400">
-              {grandTotal.toLocaleString()}원
-            </span>
-            을 입금해주세요. 입금자명은 대표자 이름으로 해주세요.
-          </p>
-        </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+            아직 입금 계좌가 설정되지 않았습니다. 잠시 후 다시 시도해주시거나 주최 측에
+            문의해주세요.
+          </div>
+        )}
       </section>
 
       <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
