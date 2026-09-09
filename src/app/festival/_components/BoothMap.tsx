@@ -4,7 +4,7 @@ import type { FestivalBooth } from "../_lib/palette";
 
 type Props = {
   booths: FestivalBooth[];
-  onSelect: (booth: FestivalBooth) => void;
+  onSelect: (booth: FestivalBooth, index: number) => void;
 };
 
 export function BoothMap({ booths, onSelect }: Props) {
@@ -22,11 +22,11 @@ export function BoothMap({ booths, onSelect }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {booths.map((booth) => (
+            {booths.map((booth, index) => (
               <button
                 key={booth.id}
                 type="button"
-                onClick={() => onSelect(booth)}
+                onClick={() => onSelect(booth, index)}
                 className="group relative flex flex-col items-start rounded-xl border border-white/10 bg-neutral-100 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-500/40 dark:border-white/[0.06] dark:bg-white/[0.03]"
               >
                 <span

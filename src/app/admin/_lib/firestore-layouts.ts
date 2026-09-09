@@ -18,3 +18,30 @@ export async function getLayout(seasonId: string): Promise<SeasonLayout | null> 
 export async function saveLayout(seasonId: string, layout: SeasonLayout): Promise<void> {
   await layoutsCollection().doc(seasonId).set(layout);
 }
+
+/**
+ * 삭제되는 주점을 모든 시즌 배치도에서 제거.
+ * 주점 삭제와 같은 batch에 얹어서 쓰도록, 커밋은 호출한 쪽에서 함.
+ * 실제로 그 주점이 배치돼 있던 시즌 배치도의 개수를 반환.
+ */
+export async function queueRemoveBoothFromLayouts(
+  batch: FirebaseFirestore.WriteBatch,
+  boothId: string,
+): Promise<number> {
+  const snap = await layoutsCollection().get();
+  let touched = 0;
+
+  snap.docs.forEach((doc) => {
+    const layout = doc.data() as SeasonLayout;
+    const cells = layout.cells ?? {};
+    if (!Object.values(cells).includes(boothId)) return;
+
+    const nextCells = Object.fromEntries(
+      Object.entries(cells).map(([key, value]) => [key, value === boothId ? null : value]),
+    );
+    batch.update(doc.ref, { cells: nextCells });
+    touched += 1;
+  });
+
+  return touched;
+}

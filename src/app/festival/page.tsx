@@ -1,10 +1,12 @@
-import { listPublicBooths } from "@/app/admin/_lib/firestore-booths";
+import { listBoothsLight } from "@/app/admin/_lib/firestore-booths";
 import { FestivalClient } from "./_components/FestivalClient";
 
 // Firestore 읽기를 매 방문마다 하지 않도록 짧게 캐시 (관리자가 주점을 바꾸면 최대 이 시간만큼 늦게 반영됨)
 export const revalidate = 30;
 
 export default async function FestivalPage() {
-  const booths = await listPublicBooths().catch(() => []);
+  // 이미지는 여기서 미리 안 가져옴 - 주점 카드를 눌렀을 때만 그 주점 것만 불러옴
+  // (모든 방문자가 배치도만 봐도 4개 주점 x 12장 이미지를 통째로 받게 되는 걸 방지)
+  const booths = await listBoothsLight().catch(() => []);
   return <FestivalClient booths={booths} />;
 }

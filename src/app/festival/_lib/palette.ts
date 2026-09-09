@@ -21,9 +21,13 @@ export type FestivalBooth = AdminBooth & {
   dotClass: string;
 };
 
+export function accentFor(index: number) {
+  return ACCENTS[index % ACCENTS.length];
+}
+
 export function withAccents(booths: AdminBooth[]): FestivalBooth[] {
   return booths.map((booth, i) => ({
     ...booth,
-    ...ACCENTS[i % ACCENTS.length],
+    ...accentFor(i),
   }));
 }

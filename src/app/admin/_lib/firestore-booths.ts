@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { queueRemoveBoothFromLayouts } from "./firestore-layouts";
 import type { AdminBooth, MenuItem } from "./types";
 
 const BOOTHS_COLLECTION = "booths";
@@ -101,16 +102,6 @@ export async function getBoothWithImages(id: string): Promise<AdminBooth | null>
   return hydrateBoothWithImages(doc);
 }
 
-/**
- * 공개 축제 페이지(/festival)용 - 인증 없이 전체 주점을 이미지까지 포함해서 가져옴.
- * 주점 수가 적어서(최대 수십 개) N+1 읽기로도 충분히 저렴함.
- */
-export async function listPublicBooths(): Promise<AdminBooth[]> {
-  const snap = await boothsCollection().orderBy("createdAt", "asc").get();
-  const booths = await Promise.all(snap.docs.map((doc) => hydrateBoothWithImages(doc)));
-  return booths.filter((b): b is AdminBooth => b !== null);
-}
-
 /** 생성/수정 공용 - booth.id를 문서 id로 그대로 사용 (upsert) */
 export async function saveBooth(booth: AdminBooth): Promise<void> {
   const db = getAdminDb();
@@ -158,6 +149,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
   await batch.commit();
 }
 
+/** 주점 삭제 + 그 이미지 서브컬렉션 + 모든 시즌 배치도에 남아있는 참조까지 함께 정리 */
 export async function deleteBooth(id: string): Promise<void> {
   const db = getAdminDb();
   const ref = boothsCollection().doc(id);
@@ -167,5 +159,6 @@ export async function deleteBooth(id: string): Promise<void> {
   const batch = db.batch();
   existingImages.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(ref);
+  await queueRemoveBoothFromLayouts(batch, id);
   await batch.commit();
 }

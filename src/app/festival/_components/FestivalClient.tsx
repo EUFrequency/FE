@@ -6,29 +6,49 @@ import { BoothDetailModal } from "./BoothDetailModal";
 import { ReservationModal } from "./ReservationModal";
 import { SuccessDialog } from "./SuccessDialog";
 import { Modal } from "./Modal";
-import { withAccents, type FestivalBooth } from "../_lib/palette";
+import { getPublicBoothAction } from "../_lib/booth-actions";
+import { accentFor, withAccents, type FestivalBooth } from "../_lib/palette";
 import type { AdminBooth } from "@/app/admin/_lib/types";
 
 type Flow = "closed" | "detail" | "reservation" | "success";
 
 export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
+  // 배치도용 - 이미지 없이 가벼움. 목록 화면은 이거로 충분.
   const boothsWithAccent = useMemo(() => withAccents(booths), [booths]);
 
-  const [selectedBoothId, setSelectedBoothId] = useState<string | null>(null);
   const [flow, setFlow] = useState<Flow>("closed");
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  // 주점을 눌렀을 때만 그 주점의 이미지 포함 전체 정보를 따로 불러와 여기 담음
+  const [boothDetail, setBoothDetail] = useState<FestivalBooth | null>(null);
+  const [loadingBoothId, setLoadingBoothId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const selectedBooth: FestivalBooth | null =
-    boothsWithAccent.find((b) => b.id === selectedBoothId) ?? null;
-
-  const openDetail = (booth: FestivalBooth) => {
-    setSelectedBoothId(booth.id);
+  const openDetail = async (booth: FestivalBooth, index: number) => {
+    setSelectedName(booth.name);
     setFlow("detail");
+    setBoothDetail(null);
+    setLoadError(null);
+    setLoadingBoothId(booth.id);
+    try {
+      const result = await getPublicBoothAction(booth.id);
+      if (!result.ok) {
+        setLoadError(result.error);
+        return;
+      }
+      setBoothDetail({ ...result.data, ...accentFor(index) });
+    } finally {
+      setLoadingBoothId(null);
+    }
   };
 
   const closeAll = () => {
     setFlow("closed");
-    setSelectedBoothId(null);
+    setBoothDetail(null);
+    setSelectedName(null);
+    setLoadError(null);
   };
+
+  const loading = loadingBoothId !== null;
 
   return (
     <main className="min-h-screen w-full bg-neutral-100 text-neutral-900 dark:bg-[#0b0805] dark:text-neutral-100">
@@ -56,10 +76,16 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
       </div>
 
       {/* Detail modal */}
-      <Modal open={flow === "detail" && !!selectedBooth} onClose={closeAll}>
-        {selectedBooth && (
+      <Modal open={flow === "detail"} onClose={closeAll}>
+        {loading || !boothDetail ? (
+          <BoothLoadingSheet
+            name={selectedName}
+            error={loadError}
+            onClose={closeAll}
+          />
+        ) : (
           <BoothDetailModal
-            booth={selectedBooth}
+            booth={boothDetail}
             onClose={closeAll}
             onReserve={() => setFlow("reservation")}
           />
@@ -67,13 +93,10 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
       </Modal>
 
       {/* Reservation modal */}
-      <Modal
-        open={flow === "reservation" && !!selectedBooth}
-        onClose={closeAll}
-      >
-        {selectedBooth && (
+      <Modal open={flow === "reservation" && !!boothDetail} onClose={closeAll}>
+        {boothDetail && (
           <ReservationModal
-            booth={selectedBooth}
+            booth={boothDetail}
             onClose={closeAll}
             onSubmit={() => setFlow("success")}
           />
@@ -81,12 +104,57 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
       </Modal>
 
       {/* Success dialog (over the map) */}
-      {flow === "success" && selectedBooth && (
-        <SuccessDialog
-          boothName={selectedBooth.name}
-          onClose={closeAll}
-        />
+      {flow === "success" && selectedName && (
+        <SuccessDialog boothName={selectedName} onClose={closeAll} />
       )}
     </main>
+  );
+}
+
+function BoothLoadingSheet({
+  name,
+  error,
+  onClose,
+}: {
+  name: string | null;
+  error: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <div className="pointer-events-auto flex h-full flex-col">
+      <div className="h-24 flex-shrink-0" onClick={onClose} />
+      <div className="relative flex flex-1 flex-col overflow-hidden rounded-t-3xl border-t border-white/10 bg-neutral-50 shadow-2xl dark:bg-neutral-950">
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full text-neutral-500 transition hover:bg-black/5 dark:hover:bg-white/5"
+          aria-label="닫기"
+        >
+          ✕
+        </button>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          {error ? (
+            <>
+              <p className="text-sm text-red-500">{error}</p>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-xs text-neutral-500 underline underline-offset-2 dark:text-neutral-400"
+              >
+                닫기
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                {name ? `${name} 불러오는 중...` : "불러오는 중..."}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
