@@ -10,7 +10,12 @@ import {
 import type { FestivalBooth } from "../_lib/palette";
 import { seasonDateOptions } from "../_lib/season-dates";
 import { submitReservationAction } from "../_lib/reservation-actions";
+import { checkAvailabilityAction } from "../_lib/availability-actions";
 import { MenuThumb } from "./MenuThumb";
+import {
+  generalHeadcountRange,
+  matchingHeadcountOptions,
+} from "@/app/admin/_lib/slots";
 import type { Account, Season } from "@/app/admin/_lib/types";
 
 type Props = {
@@ -19,8 +24,10 @@ type Props = {
   account: Account | null;
   /** 지금 진행중인 축제 시즌 - 날짜 선택지를 이 기간 안에서만 뽑음 */
   season: Season;
+  /** 지금 과팅 예약 접수 기간인지. false면 과팅 신청 옵션이 막힘 */
+  matchingOpen: boolean;
   onClose: () => void;
-  onSubmit: (orderNumber: number) => void;
+  onSubmit: () => void;
 };
 
 type Gender = "male" | "female";
@@ -59,15 +66,48 @@ function initialForm(): Form {
   };
 }
 
-export function ReservationModal({ booth, account, season, onClose, onSubmit }: Props) {
+export function ReservationModal({
+  booth,
+  account,
+  season,
+  matchingOpen,
+  onClose,
+  onSubmit,
+}: Props) {
   const [step, setStep] = useState<1 | 2>(1);
-  const [form, setForm] = useState<Form>(initialForm);
+  const [form, setForm] = useState<Form>(() => initialForm());
   const [showMatchingInfo, setShowMatchingInfo] = useState(false);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [availabilityMsg, setAvailabilityMsg] = useState<string | null>(null);
+  const [zone, setZone] = useState<"normal" | "overbook">("normal");
 
   const dateOptions = useMemo(() => seasonDateOptions(season), [season]);
+
+  // 주점 테이블 구성에서 예약 가능한 인원 범위를 뽑음
+  const matchingSizes = useMemo(
+    () => matchingHeadcountOptions(booth.tables),
+    [booth.tables],
+  );
+  const generalRange = useMemo(
+    () => generalHeadcountRange(booth.tables),
+    [booth.tables],
+  );
+  const canMatch = matchingOpen && matchingSizes.length > 0;
+  const matchingDisabledReason = !matchingOpen
+    ? "지금은 과팅 예약 접수 기간이 아닙니다."
+    : matchingSizes.length === 0
+      ? "이 주점은 과팅 예약을 받지 않습니다."
+      : null;
+
+  // 인원수 입력이 현재 모드(매칭/일반)에 유효한지
+  const headcountValid = form.matchingEnabled
+    ? matchingSizes.includes(form.headcount)
+    : !!generalRange &&
+      form.headcount >= generalRange.min &&
+      form.headcount <= generalRange.max;
 
   const menuTotal = useMemo(
     () =>
@@ -91,7 +131,7 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
     form.representativeDept &&
     form.bank &&
     form.accountNumber.trim() &&
-    form.headcount >= 1 &&
+    headcountValid &&
     (!form.matchingEnabled ||
       (form.gender &&
         form.participantDepts.every((d) => d && d.length > 0))) &&
@@ -113,7 +153,10 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
     return next;
   };
 
-  const setField = <K extends keyof Form>(key: K, value: Form[K]) =>
+  const setField = <K extends keyof Form>(key: K, value: Form[K]) => {
+    if (key === "headcount" || key === "matchingEnabled" || key === "gender") {
+      setAvailabilityMsg(null);
+    }
     setForm((f) => {
       if (key === "headcount") {
         const headcount = value as number;
@@ -133,22 +176,72 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
       }
       return { ...f, [key]: value };
     });
+  };
 
   const toggleMatching = () => {
     if (!form.matchingEnabled) {
+      if (!canMatch) return;
       setShowMatchingInfo(true);
     } else {
-      setForm((f) => ({
-        ...f,
-        matchingEnabled: false,
-        gender: "",
-      }));
+      setAvailabilityMsg(null);
+      setForm((f) => {
+        const min = generalRange?.min ?? 2;
+        const max = generalRange?.max ?? f.headcount;
+        const headcount = Math.min(Math.max(f.headcount, min), max);
+        return {
+          ...f,
+          matchingEnabled: false,
+          gender: "",
+          headcount,
+          participantDepts: resizeParticipantDepts(
+            f.participantDepts,
+            headcount,
+            f.representativeDept,
+          ),
+        };
+      });
     }
   };
 
   const confirmMatching = () => {
-    setForm((f) => ({ ...f, matchingEnabled: true }));
+    setAvailabilityMsg(null);
+    setForm((f) => {
+      const headcount = matchingSizes.includes(f.headcount)
+        ? f.headcount
+        : (matchingSizes[0] ?? f.headcount);
+      return {
+        ...f,
+        matchingEnabled: true,
+        headcount,
+        participantDepts: resizeParticipantDepts(
+          f.participantDepts,
+          headcount,
+          f.representativeDept,
+        ),
+      };
+    });
     setShowMatchingInfo(false);
+  };
+
+  const goToStep2 = async () => {
+    if (!step1Valid || checking) return;
+    setAvailabilityMsg(null);
+    setChecking(true);
+    try {
+      const res = await checkAvailabilityAction(booth.id, {
+        matching: form.matchingEnabled,
+        gender: form.matchingEnabled ? form.gender || null : null,
+        headcount: form.headcount,
+      });
+      if (!res.ok) {
+        setAvailabilityMsg(res.reason);
+        return;
+      }
+      setZone(res.status === "overbook" ? "overbook" : "normal");
+      setStep(2);
+    } finally {
+      setChecking(false);
+    }
   };
 
   const setQty = (menuId: string, delta: number) => {
@@ -210,7 +303,7 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
         setSubmitError(result.error);
         return;
       }
-      onSubmit(result.orderNumber);
+      onSubmit();
     } finally {
       setSubmitting(false);
     }
@@ -257,6 +350,10 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
               setQty={setQty}
               menuTotal={menuTotal}
               meetsMinOrder={meetsMinOrder}
+              canMatch={canMatch}
+              matchingDisabledReason={matchingDisabledReason}
+              matchingSizes={matchingSizes}
+              generalRange={generalRange}
             />
           ) : (
             <Step2
@@ -269,6 +366,7 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
               grandTotal={grandTotal}
               copied={copied}
               copyAccount={copyAccount}
+              overbooked={zone === "overbook"}
               onChangeConfirmed={(v) => setField("paymentConfirmed", v)}
             />
           )}
@@ -287,14 +385,21 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
           )}
           <div className="p-4 pt-0">
             {step === 1 ? (
-              <button
-                type="button"
-                disabled={!step1Valid}
-                onClick={() => setStep(2)}
-                className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500 dark:disabled:bg-white/10 dark:disabled:text-neutral-500"
-              >
-                다음 단계 →
-              </button>
+              <>
+                {availabilityMsg && (
+                  <p className="mb-2 text-center text-xs font-medium text-red-500">
+                    {availabilityMsg}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={!step1Valid || checking}
+                  onClick={goToStep2}
+                  className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500 dark:disabled:bg-white/10 dark:disabled:text-neutral-500"
+                >
+                  {checking ? "정원 확인 중..." : "다음 단계 →"}
+                </button>
+              </>
             ) : (
               <>
                 {submitError && (
@@ -348,6 +453,10 @@ type Step1Props = {
   setQty: (menuId: string, delta: number) => void;
   menuTotal: number;
   meetsMinOrder: boolean;
+  canMatch: boolean;
+  matchingDisabledReason: string | null;
+  matchingSizes: number[];
+  generalRange: { min: number; max: number } | null;
 };
 
 function Step1({
@@ -359,6 +468,10 @@ function Step1({
   setQty,
   menuTotal,
   meetsMinOrder,
+  canMatch,
+  matchingDisabledReason,
+  matchingSizes,
+  generalRange,
 }: Step1Props) {
   return (
     <div className="space-y-8">
@@ -433,30 +546,76 @@ function Step1({
         <div className="mt-4">
           <div className="text-xs text-neutral-500 dark:text-neutral-400">
             인원수
+            {form.matchingEnabled && (
+              <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                (과팅은 테이블 정원과 같은 인원만 가능)
+              </span>
+            )}
           </div>
           <div className="mt-2">
-            <Stepper
-              value={form.headcount}
-              onChange={(v) => setField("headcount", Math.max(1, v))}
-              min={1}
-              max={10}
-            />
+            {form.matchingEnabled ? (
+              matchingSizes.length <= 1 ? (
+                <div className="inline-flex h-10 items-center rounded-xl border border-black/5 bg-neutral-100 px-4 text-sm font-medium text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200">
+                  {form.headcount}인 팀
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {matchingSizes.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setField("headcount", n)}
+                      className={`h-10 rounded-xl border px-4 text-sm font-medium transition ${
+                        form.headcount === n
+                          ? "border-amber-400/60 bg-amber-500/15 text-amber-600 dark:text-amber-300"
+                          : "border-black/5 bg-white text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200"
+                      }`}
+                    >
+                      {n}인
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : generalRange ? (
+              <Stepper
+                value={form.headcount}
+                onChange={(v) =>
+                  setField(
+                    "headcount",
+                    Math.min(generalRange.max, Math.max(generalRange.min, v)),
+                  )
+                }
+                min={generalRange.min}
+                max={generalRange.max}
+              />
+            ) : (
+              <p className="text-xs text-red-500">
+                이 주점은 일반 예약을 받지 않습니다.
+              </p>
+            )}
           </div>
+          {!form.matchingEnabled && generalRange && (
+            <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+              {generalRange.min}~{generalRange.max}인 예약 가능
+            </p>
+          )}
         </div>
 
         <div className="mt-4 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
-          <label className="flex cursor-pointer items-center gap-3">
+          <label
+            className={`flex items-center gap-3 ${canMatch ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+          >
             <Checkbox
               checked={form.matchingEnabled}
-              onChange={toggleMatching}
+              onChange={canMatch ? toggleMatching : () => {}}
             />
             <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
               과팅 신청 💘
             </span>
           </label>
           <p className="mt-2 pl-9 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-            과팅 선택 시 인당 3,000원의 비용이 추가되며, 이 금액의 일부는
-            후원됩니다.
+            {matchingDisabledReason ??
+              "과팅 선택 시 인당 3,000원의 비용이 추가되며, 이 금액의 일부는 후원됩니다."}
           </p>
 
           {form.matchingEnabled && (
@@ -591,6 +750,7 @@ type Step2Props = {
   grandTotal: number;
   copied: boolean;
   copyAccount: () => void;
+  overbooked: boolean;
   onChangeConfirmed: (v: boolean) => void;
 };
 
@@ -604,6 +764,7 @@ function Step2({
   grandTotal,
   copied,
   copyAccount,
+  overbooked,
   onChangeConfirmed,
 }: Step2Props) {
   const orderedMenus = booth.menus
@@ -612,6 +773,16 @@ function Step2({
 
   return (
     <div className="space-y-6">
+      {overbooked && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-amber-700 dark:text-amber-300">
+          <div className="font-semibold">대기(오버부킹) 예약입니다</div>
+          <p className="mt-1 text-xs leading-5">
+            현재 이 인원의 테이블이 모두 찼습니다. 앞선 예약이 취소될 경우에만
+            이용하실 수 있고, 그렇지 않으면 이용이 어려울 수 있습니다. 확정 여부는
+            카카오톡으로 개별 안내해 드리니 꼭 확인해주세요.
+          </p>
+        </div>
+      )}
       <section>
         <SectionTitle>예약 정보 확인</SectionTitle>
         <dl className="mt-4 rounded-2xl border border-black/5 bg-white p-4 text-sm dark:border-white/5 dark:bg-white/[0.03]">

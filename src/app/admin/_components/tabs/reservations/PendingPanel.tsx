@@ -7,6 +7,7 @@ import {
   rejectReservationAction,
 } from "../../../_lib/reservation-actions";
 import { Button, Card, EmptyState } from "../../ui";
+import { CapacityGauge } from "./CapacityGauge";
 import { ReservationDetails } from "./ReservationDetails";
 
 export function PendingPanel() {
@@ -52,6 +53,8 @@ export function PendingPanel() {
 
   return (
     <div className="space-y-5">
+      <CapacityGauge />
+
       <div className="flex items-baseline justify-between">
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
           {pending.length}건 대기 중

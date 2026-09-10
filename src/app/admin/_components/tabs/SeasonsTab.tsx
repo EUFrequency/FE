@@ -156,14 +156,16 @@ export function SeasonsTab() {
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b border-black/5 text-xs text-neutral-500 dark:border-white/5 dark:text-neutral-400">
               <tr>
                 <th className="px-4 py-3 font-medium">이름</th>
                 <th className="px-4 py-3 font-medium">타입</th>
                 <th className="px-4 py-3 font-medium">상태</th>
                 <th className="px-4 py-3 font-medium">연도</th>
-                <th className="px-4 py-3 font-medium">기간</th>
+                <th className="px-4 py-3 font-medium">축제 기간</th>
+                <th className="px-4 py-3 font-medium">전체 예약</th>
+                <th className="px-4 py-3 font-medium">과팅 예약</th>
                 <th className="px-4 py-3 font-medium text-right">관리</th>
               </tr>
             </thead>
@@ -195,6 +197,13 @@ export function SeasonsTab() {
                       <span className="ml-1 text-red-500">(조기종료)</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                    {season.reservationStartDate} ~ {season.reservationEndDate}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                    {season.matchingReservationStartDate} ~{" "}
+                    {season.matchingReservationEndDate}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
                       {season.status === "ongoing" ? (
@@ -221,7 +230,7 @@ export function SeasonsTab() {
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={8}
                     className="px-4 py-10 text-center text-sm text-neutral-400 dark:text-neutral-500"
                   >
                     조건에 맞는 시즌이 없습니다.
@@ -233,10 +242,12 @@ export function SeasonsTab() {
         </div>
       </Card>
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        상태는 기간(시작일~종료일)에 따라 자동으로 정해집니다. 진행중인 시즌을 예정보다 일찍
-        끝내야 할 때만 &quot;조기종료&quot;를 누르세요 - 종료일이 오늘 날짜로 바뀌고 되돌릴 수 없습니다.
-        같은 기간에 두 시즌이 겹칠 수는 없습니다. 진행중이 아닌 시즌은 삭제할 수 있고(그 시즌의
-        배치도도 함께 삭제됨), 진행중인 시즌은 먼저 조기종료해야 삭제할 수 있습니다.
+        상태는 축제 기간(시작일~종료일)에 따라 자동으로 정해집니다. /festival 예약 폼은 예약
+        기간 안에서만 열립니다(축제 시작 전에 미리 받아도 됨). 진행중인 시즌을 예정보다 일찍
+        끝내야 할 때만 &quot;조기종료&quot;를 누르세요 - 종료일이 오늘 날짜로 바뀌고 예약도 함께
+        닫히며 되돌릴 수 없습니다. 같은 기간에 두 축제 시즌이 겹칠 수는 없습니다. 진행중이 아닌
+        시즌은 삭제할 수 있고(그 시즌의 배치도도 함께 삭제됨), 진행중인 시즌은 먼저 조기종료해야
+        삭제할 수 있습니다.
       </p>
     </div>
   );
@@ -255,10 +266,27 @@ function AddSeasonForm({
   const [year, setYear] = useState(currentYear);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [reservationStartDate, setReservationStartDate] = useState("");
+  const [reservationEndDate, setReservationEndDate] = useState("");
+  const [matchingReservationStartDate, setMatchingReservationStartDate] = useState("");
+  const [matchingReservationEndDate, setMatchingReservationEndDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const valid = name.trim() && startDate && endDate && startDate <= endDate;
+  const valid =
+    name.trim() &&
+    startDate &&
+    endDate &&
+    startDate <= endDate &&
+    reservationStartDate &&
+    reservationEndDate &&
+    reservationStartDate <= reservationEndDate &&
+    reservationEndDate <= endDate &&
+    matchingReservationStartDate &&
+    matchingReservationEndDate &&
+    matchingReservationStartDate <= matchingReservationEndDate &&
+    matchingReservationStartDate >= reservationStartDate &&
+    matchingReservationEndDate <= reservationEndDate;
 
   async function submit() {
     if (!valid || submitting) return;
@@ -272,6 +300,10 @@ function AddSeasonForm({
         year,
         startDate,
         endDate,
+        reservationStartDate,
+        reservationEndDate,
+        matchingReservationStartDate,
+        matchingReservationEndDate,
         earlyEndedAt: null,
       });
     } catch (e) {
@@ -316,7 +348,7 @@ function AddSeasonForm({
         </label>
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
-            <Label>시작일</Label>
+            <Label>축제 시작일</Label>
             <Input
               className="mt-1.5"
               type="date"
@@ -325,7 +357,7 @@ function AddSeasonForm({
             />
           </label>
           <label className="block">
-            <Label>종료일</Label>
+            <Label>축제 종료일</Label>
             <Input
               className="mt-1.5"
               type="date"
@@ -334,7 +366,52 @@ function AddSeasonForm({
             />
           </label>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <Label>전체 예약 시작일</Label>
+            <Input
+              className="mt-1.5"
+              type="date"
+              value={reservationStartDate}
+              onChange={(e) => setReservationStartDate(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <Label>전체 예약 마감일</Label>
+            <Input
+              className="mt-1.5"
+              type="date"
+              value={reservationEndDate}
+              onChange={(e) => setReservationEndDate(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <Label>과팅 예약 시작일</Label>
+            <Input
+              className="mt-1.5"
+              type="date"
+              value={matchingReservationStartDate}
+              onChange={(e) => setMatchingReservationStartDate(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <Label>과팅 예약 마감일</Label>
+            <Input
+              className="mt-1.5"
+              type="date"
+              value={matchingReservationEndDate}
+              onChange={(e) => setMatchingReservationEndDate(e.target.value)}
+            />
+          </label>
+        </div>
       </div>
+      <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+        축제 기간 = 예약자가 고르는 방문 날짜, 전체 예약 기간 = /festival에서 예약을 받는
+        기간(마감일은 축제 종료일 이내), 과팅 예약 기간 = 과팅 신청을 받는 기간(전체 예약
+        기간 안). 상황에 따라 대시보드에서 강제 오픈/마감으로 연장·조기마감할 수 있습니다.
+      </p>
       {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="secondary" disabled={submitting} onClick={onCancel}>

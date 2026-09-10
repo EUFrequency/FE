@@ -1,14 +1,35 @@
 import "server-only";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
 import type { Reservation, ReservationStatus } from "./types";
+import { slotRef } from "./firestore-inventory";
+import { reservationSlotKey } from "./slots";
 
 const COLLECTION = "reservations";
-const COUNTERS_COLLECTION = "counters";
-const ORDER_NUMBER_COUNTER = "reservationOrderNumber";
 const ALIASES_COLLECTION = "boothAliases";
+const PHONES_COLLECTION = "reservationPhones";
 
 function reservationsCollection() {
   return getAdminDb().collection(COLLECTION);
+}
+
+/** 전화번호를 숫자만 남겨서 정규화 (문서 id로 사용) */
+export function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
+function phoneMarkerRef(phone: string) {
+  return getAdminDb().collection(PHONES_COLLECTION).doc(normalizePhone(phone));
+}
+
+function toIso(v: unknown): string {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (v instanceof Timestamp) return v.toDate().toISOString();
+  if (typeof v === "object" && v !== null && "toDate" in v) {
+    return (v as Timestamp).toDate().toISOString();
+  }
+  return "";
 }
 
 function toReservation(doc: FirebaseFirestore.QueryDocumentSnapshot): Reservation {
@@ -16,9 +37,9 @@ function toReservation(doc: FirebaseFirestore.QueryDocumentSnapshot): Reservatio
   return {
     id: doc.id,
     ...data,
-    // 예전에 만들어진 문서 호환용 기본값
-    orderNumber: data.orderNumber ?? 0,
+    tableCapacity: data.tableCapacity ?? data.headcount ?? 0,
     assignedAlias: data.assignedAlias ?? null,
+    createdAt: toIso(data.createdAt),
   };
 }
 
@@ -27,87 +48,165 @@ export async function listReservations(): Promise<Reservation[]> {
   return snap.docs.map(toReservation);
 }
 
+/** 이 전화번호로 이미 접수된(반려되지 않은) 예약이 있는지 */
+export async function hasReservationForPhone(phone: string): Promise<boolean> {
+  const snap = await phoneMarkerRef(phone).get();
+  return snap.exists;
+}
+
 export async function setReservationStatus(
   id: string,
   status: Extract<ReservationStatus, "approved" | "rejected">,
 ): Promise<void> {
-  await reservationsCollection().doc(id).update({ status });
+  if (status !== "rejected") {
+    await reservationsCollection().doc(id).update({ status });
+    return;
+  }
+
+  // 반려: 정원 슬롯 -1, 전화번호 마커 삭제(재예약 허용), 물고 있던 별칭 반환
+  const db = getAdminDb();
+  await db.runTransaction(async (tx) => {
+    const resRef = reservationsCollection().doc(id);
+    const resSnap = await tx.get(resRef);
+    if (!resSnap.exists) return;
+
+    const data = resSnap.data() as Partial<Reservation>;
+    if (data.status === "rejected") return;
+
+    const alias = data.assignedAlias ?? null;
+    const boothId = data.boothId;
+    const key =
+      boothId && data.tableCapacity != null
+        ? reservationSlotKey({
+            matching: !!data.matching,
+            matchingGender: data.matchingGender,
+            tableCapacity: data.tableCapacity,
+          })
+        : null;
+
+    const sRef = boothId && key ? slotRef(boothId, key) : null;
+    let active: number | null = null;
+    if (sRef) {
+      const sSnap = await tx.get(sRef);
+      active = (sSnap.data()?.active as number | undefined) ?? 0;
+    }
+
+    let poolRef: FirebaseFirestore.DocumentReference | null = null;
+    let assigned: string[] | null = null;
+    if (alias && boothId) {
+      poolRef = db.collection(ALIASES_COLLECTION).doc(boothId);
+      const poolSnap = await tx.get(poolRef);
+      if (poolSnap.exists) {
+        assigned = Array.isArray(poolSnap.data()?.assigned)
+          ? (poolSnap.data()!.assigned as string[])
+          : [];
+      }
+    }
+
+    tx.update(resRef, { status: "rejected", assignedAlias: null });
+    if (sRef && active !== null) {
+      tx.set(sRef, { active: Math.max(0, active - 1) }, { merge: true });
+    }
+    if (data.phone) tx.delete(phoneMarkerRef(data.phone));
+    if (poolRef && assigned) {
+      tx.update(poolRef, { assigned: assigned.filter((a) => a !== alias) });
+    }
+  });
 }
 
-/**
- * 과팅 신청 예약에 배정할 별칭을 고름.
- * 같은 주점에서 이미 배정된(반려되지 않은) 별칭은 제외하고 풀 순서대로 첫 빈 자리를 반환.
- * 풀이 비었거나 모두 소진되면 null.
- */
-function pickAlias(pool: string[], usedAliases: Set<string>): string | null {
-  for (const alias of pool) {
-    if (!usedAliases.has(alias)) return alias;
+export type CreateReservationSlot = {
+  slotKey: string;
+  capacity: number;
+  tableCount: number;
+  limit: number;
+};
+
+export class ReservationBlockedError extends Error {
+  constructor(
+    message: string,
+    readonly code: "phone" | "full",
+  ) {
+    super(message);
+    this.name = "ReservationBlockedError";
   }
-  return null;
 }
 
 /**
  * 공개 축제 페이지(/festival)에서 예약 신청 시 호출 - 인증 불필요.
- * status는 항상 "pending"으로 시작해서 관리자 승인을 거치게 됨.
+ * 트랜잭션 안에서 O(1)로:
+ *  1) 전화번호 중복 확인
+ *  2) 정원 슬롯 문서 하나 읽어 정원(+오버부킹) 초과 여부 확인 후 +1
+ *  3) 과팅이면 주점 별칭 풀에서 겹치지 않는 별칭 배정
+ * status는 항상 "pending"으로 시작.
  *
- * 트랜잭션 안에서
- *  1) 전역 카운터를 1 올려 고유 주문번호를 발급하고
- *  2) 과팅 신청이면 주점별 별칭 풀에서 겹치지 않는 별칭을 하나 배정한다.
- *
- * @returns 발급된 주문번호와 배정된 별칭
+ * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 + 배정된 별칭
  */
 export async function createReservation(
   input: Omit<
     Reservation,
-    "id" | "status" | "createdAt" | "orderNumber" | "assignedAlias"
+    "id" | "status" | "createdAt" | "assignedAlias" | "tableCapacity"
   >,
-): Promise<{ orderNumber: number; assignedAlias: string | null }> {
+  slot: CreateReservationSlot,
+): Promise<{ zone: "normal" | "overbook"; assignedAlias: string | null }> {
   const db = getAdminDb();
   const reservationRef = reservationsCollection().doc();
-  const counterRef = db.collection(COUNTERS_COLLECTION).doc(ORDER_NUMBER_COUNTER);
+  const sRef = slotRef(input.boothId, slot.slotKey);
+  const pRef = phoneMarkerRef(input.phone);
+  const poolRef = db.collection(ALIASES_COLLECTION).doc(input.boothId);
 
   return db.runTransaction(async (tx) => {
-    // --- 모든 읽기 먼저 ---
-    const counterSnap = await tx.get(counterRef);
-    const current = (counterSnap.data()?.value as number | undefined) ?? 0;
-    const orderNumber = current + 1;
+    // --- 읽기 먼저 ---
+    const [slotSnap, phoneSnap] = await Promise.all([tx.get(sRef), tx.get(pRef)]);
+
+    if (phoneSnap.exists) {
+      throw new ReservationBlockedError(
+        "이미 예약하신 전화번호입니다. 한 번호로는 한 건만 예약할 수 있습니다.",
+        "phone",
+      );
+    }
+
+    const active = (slotSnap.data()?.active as number | undefined) ?? 0;
+    if (active >= slot.limit) {
+      throw new ReservationBlockedError(
+        "해당 인원의 예약이 마감되었습니다.",
+        "full",
+      );
+    }
+    const zone: "normal" | "overbook" =
+      active >= slot.tableCount ? "overbook" : "normal";
 
     let assignedAlias: string | null = null;
+    let poolAssigned: string[] | null = null;
     if (input.matching) {
-      const poolSnap = await tx.get(
-        db.collection(ALIASES_COLLECTION).doc(input.boothId),
-      );
-      const pool: string[] = Array.isArray(poolSnap.data()?.aliases)
-        ? (poolSnap.data()!.aliases as string[])
-        : [];
-
-      if (pool.length > 0) {
-        const boothReservationsSnap = await tx.get(
-          reservationsCollection().where("boothId", "==", input.boothId),
-        );
-        const used = new Set<string>();
-        boothReservationsSnap.forEach((doc) => {
-          const data = doc.data();
-          // 반려된 예약이 물고 있던 별칭은 다시 풀로 반환
-          if (data.status !== "rejected" && data.assignedAlias) {
-            used.add(data.assignedAlias as string);
-          }
-        });
-        assignedAlias = pickAlias(pool, used);
+      const poolSnap = await tx.get(poolRef);
+      if (poolSnap.exists) {
+        const aliases: string[] = Array.isArray(poolSnap.data()?.aliases)
+          ? (poolSnap.data()!.aliases as string[])
+          : [];
+        const assigned: string[] = Array.isArray(poolSnap.data()?.assigned)
+          ? (poolSnap.data()!.assigned as string[])
+          : [];
+        assignedAlias = aliases.find((a) => !assigned.includes(a)) ?? null;
+        if (assignedAlias) poolAssigned = [...assigned, assignedAlias];
       }
     }
 
-    // --- 그다음 쓰기 ---
-    const reservation: Omit<Reservation, "id"> = {
+    // --- 쓰기 ---
+    tx.set(reservationRef, {
       ...input,
-      orderNumber,
+      tableCapacity: slot.capacity,
       assignedAlias,
       status: "pending",
-      createdAt: new Date().toISOString(),
-    };
-    tx.set(reservationRef, reservation);
-    tx.set(counterRef, { value: orderNumber }, { merge: true });
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(sRef, { active: active + 1 }, { merge: true });
+    tx.set(pRef, {
+      phone: input.phone,
+      boothId: input.boothId,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    if (poolAssigned) tx.update(poolRef, { assigned: poolAssigned });
 
-    return { orderNumber, assignedAlias };
+    return { zone, assignedAlias };
   });
 }

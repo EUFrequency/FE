@@ -1,4 +1,5 @@
 import { AccountManager } from "../AccountManager";
+import { ReservationSettingsCard } from "../ReservationSettingsCard";
 import { Card } from "../ui";
 
 export function DashboardTab() {
@@ -7,6 +8,8 @@ export function DashboardTab() {
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
         대시보드
       </h1>
+
+      <ReservationSettingsCard />
 
       <Card className="p-4">
         <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">

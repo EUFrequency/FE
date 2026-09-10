@@ -1,7 +1,12 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { queueDeleteLayout } from "./firestore-layouts";
-import type { Season, SeasonStatus } from "./types";
+import type {
+  ReservationSettingMode,
+  ReservationSettings,
+  Season,
+  SeasonStatus,
+} from "./types";
 
 const COLLECTION = "seasons";
 
@@ -22,7 +27,64 @@ function computeStatus(season: Pick<Season, "startDate" | "endDate" | "earlyEnde
 }
 
 function toSeason(id: string, data: SeasonDocData): Season {
-  return { id, ...data, status: computeStatus(data) };
+  const reservationStartDate = data.reservationStartDate ?? data.startDate;
+  const reservationEndDate = data.reservationEndDate ?? data.endDate;
+  return {
+    id,
+    ...data,
+    // 예약 기간 필드가 없던 시절 문서 호환: 없으면 축제 기간 / 전체 예약 기간과 동일하게 취급
+    reservationStartDate,
+    reservationEndDate,
+    matchingReservationStartDate:
+      data.matchingReservationStartDate ?? reservationStartDate,
+    matchingReservationEndDate:
+      data.matchingReservationEndDate ?? reservationEndDate,
+    status: computeStatus(data),
+  };
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * 지금 전체(일반) 예약을 받는 중인지.
+ * settings.general이 open/closed면 날짜 무시하고 강제, auto면 시즌 예약 기간을 따름.
+ */
+export function isGeneralReservationOpen(
+  season: Pick<Season, "status" | "reservationStartDate" | "reservationEndDate">,
+  mode: ReservationSettingMode,
+): boolean {
+  if (season.status === "ended") return false;
+  if (mode === "closed") return false;
+  if (mode === "open") return true;
+  const t = today();
+  return season.reservationStartDate <= t && t <= season.reservationEndDate;
+}
+
+/**
+ * 지금 과팅 예약을 받는 중인지. 전체 예약이 열려 있어야 하고,
+ * settings.matching이 open/closed면 강제, auto면 시즌 매칭 예약 기간을 따름.
+ */
+export function isMatchingReservationOpen(
+  season: Pick<
+    Season,
+    | "status"
+    | "reservationStartDate"
+    | "reservationEndDate"
+    | "matchingReservationStartDate"
+    | "matchingReservationEndDate"
+  >,
+  settings: ReservationSettings,
+): boolean {
+  if (!isGeneralReservationOpen(season, settings.general)) return false;
+  if (settings.matching === "closed") return false;
+  if (settings.matching === "open") return true;
+  const t = today();
+  return (
+    season.matchingReservationStartDate <= t &&
+    t <= season.matchingReservationEndDate
+  );
 }
 
 export async function listSeasons(): Promise<Season[]> {
@@ -49,6 +111,24 @@ async function findOverlap(
 }
 
 export async function addSeason(season: Omit<Season, "status">): Promise<void> {
+  if (season.startDate > season.endDate) {
+    throw new Error("축제 종료일이 시작일보다 빠릅니다.");
+  }
+  if (season.reservationStartDate > season.reservationEndDate) {
+    throw new Error("전체 예약 마감일이 시작일보다 빠릅니다.");
+  }
+  if (season.reservationEndDate > season.endDate) {
+    throw new Error("전체 예약 마감일은 축제 종료일보다 늦을 수 없습니다.");
+  }
+  if (season.matchingReservationStartDate > season.matchingReservationEndDate) {
+    throw new Error("과팅 예약 마감일이 시작일보다 빠릅니다.");
+  }
+  if (
+    season.matchingReservationStartDate < season.reservationStartDate ||
+    season.matchingReservationEndDate > season.reservationEndDate
+  ) {
+    throw new Error("과팅 예약 기간은 전체 예약 기간 안에 있어야 합니다.");
+  }
   const overlap = await findOverlap(season.startDate, season.endDate);
   if (overlap) {
     throw new Error(

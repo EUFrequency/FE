@@ -24,9 +24,9 @@ function emptyMenu(): MenuItem {
 
 function defaultTables(): TableConfig[] {
   return [
-    { id: createId("table"), capacity: 2, count: 0 },
-    { id: createId("table"), capacity: 4, count: 0 },
-    { id: createId("table"), capacity: 6, count: 0 },
+    { id: createId("table"), capacity: 4, count: 0, forMatching: false },
+    { id: createId("table"), capacity: 6, count: 0, forMatching: false },
+    { id: createId("table"), capacity: 4, count: 0, forMatching: true },
   ];
 }
 
@@ -319,14 +319,16 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
       {/* 테이블 정보 */}
       <div className="mt-6">
         <div className="flex items-center justify-between">
-          <Label>테이블 정보</Label>
+          <Label hint="(매칭 전용 = 과팅 예약만, 일반 = 과팅 아닌 예약만 앉음)">
+            테이블 정보
+          </Label>
           <Button
             variant="secondary"
             type="button"
             onClick={() =>
               setTables((prev) => [
                 ...prev,
-                { id: createId("table"), capacity: 0, count: 0 },
+                { id: createId("table"), capacity: 0, count: 0, forMatching: false },
               ])
             }
           >
@@ -335,7 +337,7 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
         </div>
         <div className="mt-2 space-y-2">
           {tables.map((t) => (
-            <div key={t.id} className="flex items-center gap-2">
+            <div key={t.id} className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <Input
                   type="number"
@@ -351,9 +353,25 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
                   className="w-20"
                 />
                 <span className="text-sm text-neutral-500 dark:text-neutral-400">
-                  인 테이블
+                  인
                 </span>
               </div>
+              <select
+                value={t.forMatching ? "matching" : "general"}
+                onChange={(e) =>
+                  setTables((prev) =>
+                    prev.map((x) =>
+                      x.id === t.id
+                        ? { ...x, forMatching: e.target.value === "matching" }
+                        : x,
+                    ),
+                  )
+                }
+                className="h-9 rounded-lg border border-black/10 bg-white px-2 text-sm text-neutral-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100"
+              >
+                <option value="general">일반</option>
+                <option value="matching">매칭 전용</option>
+              </select>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -395,6 +413,11 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
             </div>
           ))}
         </div>
+        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+          각 테이블 종류마다 정원 외에 오버부킹 3팀까지 추가로 접수받습니다(매칭 전용은
+          남·여 각각 3팀). 오버부킹 예약자에게는 &quot;앞선 예약 취소 시에만 이용 가능&quot;
+          안내가 표시됩니다.
+        </p>
       </div>
 
       {/* 과팅 별칭 풀 */}

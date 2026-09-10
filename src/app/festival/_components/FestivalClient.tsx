@@ -15,9 +15,15 @@ type Flow = "closed" | "detail" | "reservation" | "success";
 export function FestivalClient({
   booths,
   season,
+  generalOpen,
+  matchingOpen,
 }: {
   booths: AdminBooth[];
   season: Season | null;
+  /** 전체(일반) 예약 접수 중인지. false면 소개만 보이고 예약 버튼은 막힘 */
+  generalOpen: boolean;
+  /** 과팅 예약 접수 중인지. false면 예약 폼에서 과팅 신청 옵션이 막힘 */
+  matchingOpen: boolean;
 }) {
   // 배치도용 - 이미지 없이 가벼움. 목록 화면은 이거로 충분.
   const boothsWithAccent = useMemo(() => withAccents(booths), [booths]);
@@ -29,7 +35,6 @@ export function FestivalClient({
   const [paymentAccount, setPaymentAccount] = useState<Account | null>(null);
   const [loadingBoothId, setLoadingBoothId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [orderNumber, setOrderNumber] = useState<number | null>(null);
 
   const openDetail = async (booth: FestivalBooth, index: number) => {
     setSelectedName(booth.name);
@@ -57,7 +62,6 @@ export function FestivalClient({
     setPaymentAccount(null);
     setSelectedName(null);
     setLoadError(null);
-    setOrderNumber(null);
   };
 
   const loading = loadingBoothId !== null;
@@ -110,6 +114,12 @@ export function FestivalClient({
         ) : (
           <BoothDetailModal
             booth={boothDetail}
+            reservationOpen={generalOpen}
+            reservationPeriod={
+              season
+                ? { start: season.reservationStartDate, end: season.reservationEndDate }
+                : null
+            }
             onClose={closeAll}
             onReserve={() => setFlow("reservation")}
           />
@@ -117,28 +127,25 @@ export function FestivalClient({
       </Modal>
 
       {/* Reservation modal */}
-      <Modal open={flow === "reservation" && !!boothDetail && !!season} onClose={closeAll}>
-        {boothDetail && season && (
+      <Modal
+        open={flow === "reservation" && !!boothDetail && !!season && generalOpen}
+        onClose={closeAll}
+      >
+        {boothDetail && season && generalOpen && (
           <ReservationModal
             booth={boothDetail}
             account={paymentAccount}
             season={season}
+            matchingOpen={matchingOpen}
             onClose={closeAll}
-            onSubmit={(issued) => {
-              setOrderNumber(issued);
-              setFlow("success");
-            }}
+            onSubmit={() => setFlow("success")}
           />
         )}
       </Modal>
 
       {/* Success dialog (over the map) */}
       {flow === "success" && selectedName && (
-        <SuccessDialog
-          boothName={selectedName}
-          orderNumber={orderNumber}
-          onClose={closeAll}
-        />
+        <SuccessDialog boothName={selectedName} onClose={closeAll} />
       )}
     </main>
   );

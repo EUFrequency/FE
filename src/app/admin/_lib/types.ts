@@ -10,11 +10,40 @@ export type Season = {
   /** startDate/endDate/earlyEndedAt로부터 항상 자동 계산됨 - 직접 수정하지 않음 */
   status: SeasonStatus;
   year: number;
-  startDate: string; // YYYY-MM-DD
-  endDate: string; // YYYY-MM-DD
+  /** 축제 진행 시작일 (YYYY-MM-DD) - 예약 폼의 방문 날짜 선택지가 이 구간에서 나옴 */
+  startDate: string;
+  /** 축제 진행 종료일 (YYYY-MM-DD) */
+  endDate: string;
+  /** 전체(일반) 예약 접수 시작일 (YYYY-MM-DD) */
+  reservationStartDate: string;
+  /** 전체(일반) 예약 접수 마감일 (YYYY-MM-DD) */
+  reservationEndDate: string;
+  /** 과팅 예약 접수 시작일 (YYYY-MM-DD) - 보통 전체 예약 기간 안의 앞부분 */
+  matchingReservationStartDate: string;
+  /** 과팅 예약 접수 마감일 (YYYY-MM-DD) */
+  matchingReservationEndDate: string;
   /** 조기종료한 날짜(YYYY-MM-DD). 설정되면 이후 status는 무조건 ended로 고정됨 */
   earlyEndedAt: string | null;
 };
+
+export type ReservationSettingMode = "auto" | "open" | "closed";
+
+/**
+ * 시스템 전체 예약 스위치. auto면 시즌의 날짜 기간을 따르고,
+ * open/closed면 날짜와 무관하게 강제로 열거나 닫음(연장·조기마감용).
+ */
+export type ReservationSettings = {
+  /** 전체(일반) 예약 */
+  general: ReservationSettingMode;
+  /** 과팅 예약 */
+  matching: ReservationSettingMode;
+};
+
+/** 테이블 종류(정원+용도)마다 허용하는 오버부킹 팀 수 (매칭은 성별별로 각각 적용) */
+export const TABLE_OVERBOOK = 3;
+
+/** 일반 예약이 앉을 수 있는 최소 인원 (1인 예약 불가) */
+export const MIN_GENERAL_HEADCOUNT = 2;
 
 export type ReservationStatus = "pending" | "approved" | "rejected";
 export type MatchingGender = "male" | "female";
@@ -27,14 +56,14 @@ export type ReservationOrderItem = {
 
 export type Reservation = {
   id: string;
-  /** 접수 순서대로 1부터 자동 증가하는 고유 주문번호 (counters/reservationOrderNumber로 관리) */
-  orderNumber: number;
   boothId: string;
   boothName: string;
   representativeName: string;
   phone: string;
   department: string;
   headcount: number;
+  /** 이 예약이 차지한 테이블 정원 (정원 관리 슬롯 집계용). 매칭이면 headcount와 동일 */
+  tableCapacity: number;
   date: string;
   time: string;
   /** 환불 등에 쓰일 대표 예약자 본인 계좌 정보 */
@@ -75,6 +104,8 @@ export type TableConfig = {
   id: string;
   capacity: number;
   count: number;
+  /** true = 과팅(매칭) 예약 전용, false = 일반 예약 전용 */
+  forMatching: boolean;
 };
 
 export type AdminBooth = {
@@ -106,6 +137,11 @@ export type BoothAliasPool = {
   boothId: string;
   /** 배정 가능한 별칭 목록 (위에서부터 순서대로 배정됨) */
   aliases: string[];
+  /**
+   * 현재 유효한 예약이 물고 있는 별칭들. 예약 접수 시 여기에 추가하고 반려 시 제거해서,
+   * 배정할 때 예약 전체를 훑지 않고 이 문서 하나만 읽으면 되도록 함(읽기 비용 절약).
+   */
+  assigned: string[];
 };
 
 /** 입금 계좌 - 시스템 대표 계좌 1개(isDefault) + 주점별 개별 계좌들을 같은 테이블에서 관리 */

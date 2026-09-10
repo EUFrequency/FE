@@ -1,7 +1,8 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { queueRemoveBoothFromLayouts } from "./firestore-layouts";
-import type { AdminBooth, MenuItem } from "./types";
+import { deleteBoothInventory } from "./firestore-inventory";
+import type { AdminBooth, MenuItem, TableConfig } from "./types";
 
 const BOOTHS_COLLECTION = "booths";
 const IMAGES_SUBCOLLECTION = "images";
@@ -33,6 +34,11 @@ function boothsCollection() {
   return getAdminDb().collection(BOOTHS_COLLECTION);
 }
 
+/** forMatching이 없던 시절 테이블 문서 호환: 없으면 일반 테이블로 취급 */
+function normalizeTables(tables: TableConfig[] | undefined): TableConfig[] {
+  return (tables ?? []).map((t) => ({ ...t, forMatching: t.forMatching ?? false }));
+}
+
 function toLightBooth(id: string, data: BoothDocData): AdminBooth {
   return {
     id,
@@ -44,7 +50,7 @@ function toLightBooth(id: string, data: BoothDocData): AdminBooth {
     descriptionImages: [],
     menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
     minOrder: data.minOrder,
-    tables: data.tables ?? [],
+    tables: normalizeTables(data.tables),
     accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
@@ -85,7 +91,7 @@ async function hydrateBoothWithImages(
       image: menuImageByMenuId.get(m.id) ?? "",
     })),
     minOrder: data.minOrder,
-    tables: data.tables ?? [],
+    tables: normalizeTables(data.tables),
     accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
@@ -104,6 +110,13 @@ export async function listBoothsLight(): Promise<AdminBooth[]> {
 export async function getBoothWithImages(id: string): Promise<AdminBooth | null> {
   const doc = await boothsCollection().doc(id).get();
   return hydrateBoothWithImages(doc);
+}
+
+/** 이미지 없이 주점 본문서 하나만 읽음 - 예약 정원 확인처럼 테이블 구성만 필요할 때 */
+export async function getBoothLight(id: string): Promise<AdminBooth | null> {
+  const doc = await boothsCollection().doc(id).get();
+  if (!doc.exists) return null;
+  return toLightBooth(doc.id, doc.data() as BoothDocData);
 }
 
 /** 생성/수정 공용 - booth.id를 문서 id로 그대로 사용 (upsert) */
@@ -167,4 +180,7 @@ export async function deleteBooth(id: string): Promise<void> {
   batch.delete(db.collection(ALIASES_COLLECTION).doc(id));
   await queueRemoveBoothFromLayouts(batch, id);
   await batch.commit();
+
+  // 정원 슬롯 문서(서브컬렉션)는 배치에 못 넣어서 따로 정리
+  await deleteBoothInventory(id);
 }

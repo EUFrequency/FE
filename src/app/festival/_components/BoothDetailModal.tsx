@@ -5,11 +5,21 @@ import { MenuThumb } from "./MenuThumb";
 
 type Props = {
   booth: FestivalBooth;
+  /** 지금 예약 접수 기간인지 */
+  reservationOpen: boolean;
+  /** 예약 접수 기간 (안내 문구용) */
+  reservationPeriod: { start: string; end: string } | null;
   onClose: () => void;
   onReserve: () => void;
 };
 
-export function BoothDetailModal({ booth, onClose, onReserve }: Props) {
+export function BoothDetailModal({
+  booth,
+  reservationOpen,
+  reservationPeriod,
+  onClose,
+  onReserve,
+}: Props) {
   return (
     <div className="pointer-events-auto flex h-full flex-col">
       {/* Top gap showing festival header behind */}
@@ -87,11 +97,17 @@ export function BoothDetailModal({ booth, onClose, onReserve }: Props) {
         <div className="absolute inset-x-0 bottom-0 border-t border-black/5 bg-neutral-50/95 p-4 backdrop-blur dark:border-white/5 dark:bg-neutral-950/95">
           <button
             type="button"
-            onClick={onReserve}
-            className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400"
+            onClick={reservationOpen ? onReserve : undefined}
+            disabled={!reservationOpen}
+            className="h-14 w-full rounded-2xl bg-amber-500 font-semibold text-neutral-900 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500 dark:disabled:bg-white/10 dark:disabled:text-neutral-500"
           >
-            예약하러 가기 →
+            {reservationOpen ? "예약하러 가기 →" : "예약 기간이 아닙니다"}
           </button>
+          {!reservationOpen && reservationPeriod && (
+            <div className="mt-2 text-center text-xs text-neutral-500 dark:text-neutral-400">
+              예약 기간: {reservationPeriod.start} ~ {reservationPeriod.end}
+            </div>
+          )}
         </div>
       </div>
     </div>

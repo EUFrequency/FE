@@ -6,7 +6,7 @@ import type { Reservation } from "../../../_lib/types";
 import { Badge, Button, Card, EmptyState, Label, Select } from "../../ui";
 
 const HEADERS = [
-  "주문번호",
+  "순번",
   "대표자 성함",
   "메뉴명",
   "가격",
@@ -19,7 +19,7 @@ const HEADERS = [
 type DataRow = {
   kind: "data";
   key: string;
-  orderNumber: string;
+  seq: string;
   representativeName: string;
   menuName: string;
   price: string;
@@ -31,7 +31,7 @@ type DataRow = {
 type SpacerRow = { kind: "spacer"; key: string };
 type Row = DataRow | SpacerRow;
 
-/** 확정(승인)된 예약을 주문번호 순서대로, 메뉴 한 줄씩 펼쳐서 표로 만든다. 주문끼리는 빈 행으로 구분 */
+/** 확정(승인)된 예약을 접수 순서대로, 메뉴 한 줄씩 펼쳐서 표로 만든다. 주문끼리는 빈 행으로 구분 */
 function buildRows(reservations: Reservation[]): Row[] {
   const rows: Row[] = [];
   reservations.forEach((r, ri) => {
@@ -41,7 +41,7 @@ function buildRows(reservations: Reservation[]): Row[] {
       rows.push({
         kind: "data",
         key: `${r.id}-${ii}`,
-        orderNumber: first ? (r.orderNumber > 0 ? `#${r.orderNumber}` : "-") : "",
+        seq: first ? `#${ri + 1}` : "",
         representativeName: first ? r.representativeName : "",
         menuName: item ? item.menuName : "-",
         price: item ? `${item.unitPrice.toLocaleString()}원` : "",
@@ -69,7 +69,7 @@ function rowsToCsv(rows: Row[]): string {
     }
     lines.push(
       [
-        row.orderNumber,
+        row.seq,
         row.representativeName,
         row.menuName,
         row.price,
@@ -117,7 +117,7 @@ export function OrderHistoryPanel() {
     () =>
       approved
         .filter((r) => boothFilter === "all" || r.boothId === boothFilter)
-        .sort((a, b) => a.orderNumber - b.orderNumber),
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [approved, boothFilter],
   );
 
@@ -136,7 +136,7 @@ export function OrderHistoryPanel() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
-          확정된 주문 {ordered.length}건 (주문번호 순)
+          확정된 주문 {ordered.length}건 (접수 순)
         </span>
         <div className="flex shrink-0 items-center gap-2">
           <Button
@@ -172,7 +172,7 @@ export function OrderHistoryPanel() {
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-b border-black/5 text-xs text-neutral-500 dark:border-white/5 dark:text-neutral-400">
                 <tr>
-                  <th className="px-4 py-3 font-medium">주문번호</th>
+                  <th className="px-4 py-3 font-medium">순번</th>
                   <th className="px-4 py-3 font-medium">대표자 성함</th>
                   <th className="px-4 py-3 font-medium">메뉴명</th>
                   <th className="px-4 py-3 text-right font-medium">가격</th>
@@ -202,7 +202,7 @@ export function OrderHistoryPanel() {
                       className="border-b border-black/5 last:border-0 dark:border-white/5"
                     >
                       <td className="px-4 py-2.5 font-mono font-medium text-neutral-900 dark:text-neutral-100">
-                        {row.orderNumber}
+                        {row.seq}
                       </td>
                       <td className="px-4 py-2.5 text-neutral-700 dark:text-neutral-200">
                         {row.representativeName}
@@ -243,7 +243,7 @@ export function OrderHistoryPanel() {
       )}
 
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        승인된 예약만 주문번호 순으로 표시됩니다. 한 주문에 메뉴가 여러 개면 줄을 나눠
+        승인된 예약만 접수된 순서대로 표시됩니다. 한 주문에 메뉴가 여러 개면 줄을 나눠
         표시하고, 주문끼리는 빈 줄로 구분합니다. CSV도 같은 구성으로 내려받습니다.
       </p>
     </div>
