@@ -8,6 +8,10 @@ import {
   listBoothsAction,
   saveBoothAction,
 } from "../../_lib/booth-actions";
+import {
+  getBoothAliasPoolAction,
+  saveBoothAliasPoolAction,
+} from "../../_lib/alias-actions";
 import type { AdminBooth } from "../../_lib/types";
 import { Modal } from "../Modal";
 import { Badge, Button, Card, EmptyState } from "../ui";
@@ -16,6 +20,7 @@ import { BoothForm } from "./BoothForm";
 export function BoothsTab() {
   const { state, dispatch, boothsError } = useAdminStore();
   const [mode, setMode] = useState<"list" | "add" | AdminBooth>("list");
+  const [editingAliasPool, setEditingAliasPool] = useState<string[]>([]);
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -28,9 +33,13 @@ export function BoothsTab() {
     setRowError(null);
     setLoadingEditId(boothId);
     try {
-      const result = await getBoothAction(boothId);
+      const [result, aliasResult] = await Promise.all([
+        getBoothAction(boothId),
+        getBoothAliasPoolAction(boothId),
+      ]);
       if (!result.ok) throw new Error(result.error);
       if (!result.data) throw new Error("주점을 찾을 수 없습니다.");
+      setEditingAliasPool(aliasResult.ok ? aliasResult.data : []);
       setMode(result.data);
     } catch (e) {
       setRowError(e instanceof Error ? e.message : "주점 정보를 불러오지 못했습니다.");
@@ -68,11 +77,18 @@ export function BoothsTab() {
     }
   }
 
-  async function handleSubmit(booth: AdminBooth) {
+  async function handleSubmit(booth: AdminBooth, aliasPool: string[]) {
     const result = await saveBoothAction(booth);
     if (!result.ok) throw new Error(result.error);
+    const aliasSave = await saveBoothAliasPoolAction(booth.id, aliasPool);
+    if (!aliasSave.ok) throw new Error(aliasSave.error);
     dispatch({ type: editing ? "booths/update" : "booths/add", payload: booth });
     setMode("list");
+  }
+
+  function openAdd() {
+    setEditingAliasPool([]);
+    setMode("add");
   }
 
   return (
@@ -85,7 +101,7 @@ export function BoothsTab() {
           <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? "새로고침 중..." : "새로고침"}
           </Button>
-          <Button variant="primary" onClick={() => setMode("add")}>
+          <Button variant="primary" onClick={openAdd}>
             + 새 주점 등록
           </Button>
         </div>
@@ -108,6 +124,7 @@ export function BoothsTab() {
           <BoothForm
             key={editing?.id ?? "new"}
             initial={editing}
+            initialAliasPool={editingAliasPool}
             onCancel={() => setMode("list")}
             onSubmit={handleSubmit}
           />

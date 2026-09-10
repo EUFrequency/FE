@@ -19,6 +19,11 @@ export async function saveLayout(seasonId: string, layout: SeasonLayout): Promis
   await layoutsCollection().doc(seasonId).set(layout);
 }
 
+/** 시즌 삭제와 같은 batch에 얹어서, 그 시즌의 배치도 문서도 같이 지움 (없어도 안전) */
+export function queueDeleteLayout(batch: FirebaseFirestore.WriteBatch, seasonId: string) {
+  batch.delete(layoutsCollection().doc(seasonId));
+}
+
 /**
  * 삭제되는 주점을 모든 시즌 배치도에서 제거.
  * 주점 삭제와 같은 batch에 얹어서 쓰도록, 커밋은 호출한 쪽에서 함.

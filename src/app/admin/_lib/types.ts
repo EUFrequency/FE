@@ -7,10 +7,13 @@ export type Season = {
   id: string;
   name: string;
   type: SeasonType;
+  /** startDate/endDate/earlyEndedAt로부터 항상 자동 계산됨 - 직접 수정하지 않음 */
   status: SeasonStatus;
   year: number;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  /** 조기종료한 날짜(YYYY-MM-DD). 설정되면 이후 status는 무조건 ended로 고정됨 */
+  earlyEndedAt: string | null;
 };
 
 export type ReservationStatus = "pending" | "approved" | "rejected";
@@ -24,6 +27,8 @@ export type ReservationOrderItem = {
 
 export type Reservation = {
   id: string;
+  /** 접수 순서대로 1부터 자동 증가하는 고유 주문번호 (counters/reservationOrderNumber로 관리) */
+  orderNumber: number;
   boothId: string;
   boothName: string;
   representativeName: string;
@@ -40,6 +45,12 @@ export type Reservation = {
   matchingGender?: MatchingGender;
   /** 과팅 신청 시 참석자별 학과. index 0 = 대표자 학과(= department와 동일) */
   participantDepartments?: string[];
+  /**
+   * 과팅 신청자에게 배정된 별칭. 주점별 별칭 풀(boothAliases 컬렉션)에서
+   * 같은 주점 내 다른 유효 예약과 겹치지 않게 접수 시점에 하나 뽑아서 고정.
+   * 과팅 미신청이거나 풀이 비었거나 소진되면 null.
+   */
+  assignedAlias?: string | null;
   /** 주문한 메뉴 내역 (영수증 표시용) */
   orderItems: ReservationOrderItem[];
   /** 메뉴 주문 금액 (주점 매출로 집계) = orderItems 합계 */
@@ -85,6 +96,16 @@ export type AdminBooth = {
    */
   accountId: string | null;
   createdAt: string;
+};
+
+/**
+ * 주점별 별칭 풀 - 과팅 신청자에게 배정할 별칭 후보 목록.
+ * boothAliases 컬렉션에 주점 id를 문서 id로 1:1 저장하며, 주점 등록/수정 폼에서 관리한다.
+ */
+export type BoothAliasPool = {
+  boothId: string;
+  /** 배정 가능한 별칭 목록 (위에서부터 순서대로 배정됨) */
+  aliases: string[];
 };
 
 /** 입금 계좌 - 시스템 대표 계좌 1개(isDefault) + 주점별 개별 계좌들을 같은 테이블에서 관리 */

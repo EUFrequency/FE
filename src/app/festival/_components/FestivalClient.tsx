@@ -8,11 +8,17 @@ import { SuccessDialog } from "./SuccessDialog";
 import { Modal } from "./Modal";
 import { getPublicBoothAction } from "../_lib/booth-actions";
 import { accentFor, withAccents, type FestivalBooth } from "../_lib/palette";
-import type { Account, AdminBooth } from "@/app/admin/_lib/types";
+import type { Account, AdminBooth, Season } from "@/app/admin/_lib/types";
 
 type Flow = "closed" | "detail" | "reservation" | "success";
 
-export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
+export function FestivalClient({
+  booths,
+  season,
+}: {
+  booths: AdminBooth[];
+  season: Season | null;
+}) {
   // 배치도용 - 이미지 없이 가벼움. 목록 화면은 이거로 충분.
   const boothsWithAccent = useMemo(() => withAccents(booths), [booths]);
 
@@ -23,6 +29,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
   const [paymentAccount, setPaymentAccount] = useState<Account | null>(null);
   const [loadingBoothId, setLoadingBoothId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [orderNumber, setOrderNumber] = useState<number | null>(null);
 
   const openDetail = async (booth: FestivalBooth, index: number) => {
     setSelectedName(booth.name);
@@ -50,6 +57,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
     setPaymentAccount(null);
     setSelectedName(null);
     setLoadError(null);
+    setOrderNumber(null);
   };
 
   const loading = loadingBoothId !== null;
@@ -59,7 +67,7 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
       <div className="mx-auto flex w-full max-w-[440px] flex-col px-5 pt-10 pb-16">
         <header className="text-center">
           <div className="text-xs font-medium tracking-wide text-amber-600 dark:text-amber-400">
-            2026 가을 대동제
+            {season ? season.name : "Frequency"}
           </div>
           <h1 className="mt-2 font-serif text-4xl font-bold italic tracking-tight text-neutral-900 dark:text-neutral-50">
             Frequency
@@ -67,15 +75,27 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
           <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             축제편 주점 예약
           </div>
-          <div className="mt-5 flex items-center justify-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-            <span>📍 본관 앞 운동장</span>
-            <span>·</span>
-            <span>🕐 18:00 – 21:30</span>
-          </div>
+          {season && (
+            <div className="mt-5 flex items-center justify-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+              <span>📍 본관 앞 운동장</span>
+              <span>·</span>
+              <span>
+                🗓 {season.startDate} ~ {season.endDate}
+              </span>
+            </div>
+          )}
         </header>
 
         <div className="mt-8">
-          <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
+          {season ? (
+            <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-black/10 px-5 py-16 text-center text-sm text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+              지금은 진행 중인 축제가 없습니다.
+              <br />
+              축제 기간에 다시 찾아와주세요.
+            </div>
+          )}
         </div>
       </div>
 
@@ -97,20 +117,28 @@ export function FestivalClient({ booths }: { booths: AdminBooth[] }) {
       </Modal>
 
       {/* Reservation modal */}
-      <Modal open={flow === "reservation" && !!boothDetail} onClose={closeAll}>
-        {boothDetail && (
+      <Modal open={flow === "reservation" && !!boothDetail && !!season} onClose={closeAll}>
+        {boothDetail && season && (
           <ReservationModal
             booth={boothDetail}
             account={paymentAccount}
+            season={season}
             onClose={closeAll}
-            onSubmit={() => setFlow("success")}
+            onSubmit={(issued) => {
+              setOrderNumber(issued);
+              setFlow("success");
+            }}
           />
         )}
       </Modal>
 
       {/* Success dialog (over the map) */}
       {flow === "success" && selectedName && (
-        <SuccessDialog boothName={selectedName} onClose={closeAll} />
+        <SuccessDialog
+          boothName={selectedName}
+          orderNumber={orderNumber}
+          onClose={closeAll}
+        />
       )}
     </main>
   );

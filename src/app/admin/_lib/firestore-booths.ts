@@ -5,6 +5,7 @@ import type { AdminBooth, MenuItem } from "./types";
 
 const BOOTHS_COLLECTION = "booths";
 const IMAGES_SUBCOLLECTION = "images";
+const ALIASES_COLLECTION = "boothAliases";
 
 type ImageDoc = {
   kind: "description" | "menu";
@@ -163,6 +164,7 @@ export async function deleteBooth(id: string): Promise<void> {
   const batch = db.batch();
   existingImages.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(ref);
+  batch.delete(db.collection(ALIASES_COLLECTION).doc(id));
   await queueRemoveBoothFromLayouts(batch, id);
   await batch.commit();
 }

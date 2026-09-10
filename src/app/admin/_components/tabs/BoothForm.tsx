@@ -12,8 +12,10 @@ const MAX_MENUS = 8;
 
 type Props = {
   initial: AdminBooth | null;
+  /** 이 주점의 과팅 별칭 풀 (boothAliases 컬렉션에서 별도로 불러온 값) */
+  initialAliasPool: string[];
   onCancel: () => void;
-  onSubmit: (booth: AdminBooth) => Promise<void>;
+  onSubmit: (booth: AdminBooth, aliasPool: string[]) => Promise<void>;
 };
 
 function emptyMenu(): MenuItem {
@@ -28,7 +30,7 @@ function defaultTables(): TableConfig[] {
   ];
 }
 
-export function BoothForm({ initial, onCancel, onSubmit }: Props) {
+export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Props) {
   const [department, setDepartment] = useState(initial?.department ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [ownerName, setOwnerName] = useState(initial?.ownerName ?? "");
@@ -47,6 +49,8 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
     initial?.tables.length ? initial.tables : defaultTables(),
   );
   const [accountId, setAccountId] = useState<string | null>(initial?.accountId ?? null);
+  const [aliasPool, setAliasPool] = useState<string[]>(initialAliasPool);
+  const [aliasInput, setAliasInput] = useState("");
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -73,6 +77,13 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
     }
   }
 
+  function addAlias() {
+    const value = aliasInput.trim();
+    if (!value) return;
+    setAliasPool((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setAliasInput("");
+  }
+
   async function handleMenuImage(menuId: string, fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
@@ -85,20 +96,23 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await onSubmit({
-        id: initial?.id ?? createId("booth"),
-        department: department.trim(),
-        name: name.trim(),
-        ownerName: ownerName.trim(),
-        ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
-        descriptionText: descriptionText.trim(),
-        descriptionImages,
-        menus: validMenus,
-        minOrder: Number(minOrder),
-        tables: tables.filter((t) => t.capacity > 0),
-        accountId,
-        createdAt: initial?.createdAt ?? new Date().toISOString(),
-      });
+      await onSubmit(
+        {
+          id: initial?.id ?? createId("booth"),
+          department: department.trim(),
+          name: name.trim(),
+          ownerName: ownerName.trim(),
+          ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
+          descriptionText: descriptionText.trim(),
+          descriptionImages,
+          menus: validMenus,
+          minOrder: Number(minOrder),
+          tables: tables.filter((t) => t.capacity > 0),
+          accountId,
+          createdAt: initial?.createdAt ?? new Date().toISOString(),
+        },
+        aliasPool,
+      );
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "저장에 실패했습니다.");
     } finally {
@@ -381,6 +395,56 @@ export function BoothForm({ initial, onCancel, onSubmit }: Props) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 과팅 별칭 풀 */}
+      <div className="mt-6">
+        <Label hint="(과팅 신청자에게 위에서부터 순서대로 겹치지 않게 배정됨)">
+          과팅 별칭 풀
+        </Label>
+        <div className="mt-1.5 flex gap-2">
+          <Input
+            value={aliasInput}
+            onChange={(e) => setAliasInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addAlias();
+              }
+            }}
+            placeholder="예: 체리"
+          />
+          <Button type="button" variant="secondary" onClick={addAlias}>
+            추가
+          </Button>
+        </div>
+        {aliasPool.length === 0 ? (
+          <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+            등록된 별칭이 없습니다. 별칭이 없으면 과팅 신청자에게 별칭이 배정되지 않습니다.
+          </p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {aliasPool.map((alias, i) => (
+              <span
+                key={alias}
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white py-1 pl-2 pr-1 text-sm text-neutral-800 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100"
+              >
+                <span className="text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
+                  {i + 1}
+                </span>
+                {alias}
+                <button
+                  type="button"
+                  onClick={() => setAliasPool((prev) => prev.filter((a) => a !== alias))}
+                  className="grid h-5 w-5 place-items-center rounded-full text-neutral-400 transition hover:bg-red-500/10 hover:text-red-500"
+                  aria-label={`${alias} 삭제`}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 입금 계좌 */}

@@ -1,7 +1,7 @@
 "use server";
 
 import { requireAdmin, toActionResult, type ActionResult } from "./action-result";
-import { activateSeason, addSeason, listSeasons } from "./firestore-seasons";
+import { addSeason, deleteSeason, endSeasonEarly, listSeasons } from "./firestore-seasons";
 import type { Season } from "./types";
 
 export async function listSeasonsAction(): Promise<ActionResult<Season[]>> {
@@ -11,16 +11,23 @@ export async function listSeasonsAction(): Promise<ActionResult<Season[]>> {
   });
 }
 
-export async function addSeasonAction(season: Season): Promise<ActionResult> {
+export async function addSeasonAction(season: Omit<Season, "status">): Promise<ActionResult> {
   return toActionResult(async () => {
     await requireAdmin();
     await addSeason(season);
   });
 }
 
-export async function activateSeasonAction(id: string): Promise<ActionResult> {
+export async function endSeasonEarlyAction(id: string): Promise<ActionResult> {
   return toActionResult(async () => {
     await requireAdmin();
-    await activateSeason(id);
+    await endSeasonEarly(id);
+  });
+}
+
+export async function deleteSeasonAction(id: string): Promise<ActionResult> {
+  return toActionResult(async () => {
+    await requireAdmin();
+    await deleteSeason(id);
   });
 }
