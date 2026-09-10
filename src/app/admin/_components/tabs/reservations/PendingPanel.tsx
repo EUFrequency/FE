@@ -6,12 +6,11 @@ import {
   approveReservationAction,
   rejectReservationAction,
 } from "../../../_lib/reservation-actions";
-import { Badge, Button, Card, EmptyState } from "../../ui";
+import { Button, Card, EmptyState } from "../../ui";
 import { ReservationDetails } from "./ReservationDetails";
 
 export function PendingPanel() {
   const { state, dispatch, reservationsError } = useAdminStore();
-  const [showHistory, setShowHistory] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -20,11 +19,6 @@ export function PendingPanel() {
       state.reservations
         .filter((r) => r.status === "pending")
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [state.reservations],
-  );
-
-  const decided = useMemo(
-    () => state.reservations.filter((r) => r.status !== "pending"),
     [state.reservations],
   );
 
@@ -127,35 +121,6 @@ export function PendingPanel() {
               </div>
             </Card>
           ))}
-        </div>
-      )}
-
-      {decided.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowHistory((v) => !v)}
-            className="text-xs text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
-          >
-            {showHistory ? "처리 내역 숨기기" : `처리 내역 보기 (${decided.length})`}
-          </button>
-          {showHistory && (
-            <Card className="mt-3 divide-y divide-black/5 dark:divide-white/5">
-              {decided.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between px-4 py-3 text-sm"
-                >
-                  <span className="text-neutral-700 dark:text-neutral-200">
-                    {r.boothName} · {r.representativeName} · {r.date} {r.time}
-                  </span>
-                  <Badge tone={r.status === "approved" ? "green" : "red"}>
-                    {r.status === "approved" ? "승인됨" : "반려됨"}
-                  </Badge>
-                </div>
-              ))}
-            </Card>
-          )}
         </div>
       )}
     </div>

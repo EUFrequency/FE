@@ -20,7 +20,7 @@ type Props = {
   /** 지금 진행중인 축제 시즌 - 날짜 선택지를 이 기간 안에서만 뽑음 */
   season: Season;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (orderNumber: number) => void;
 };
 
 type Gender = "male" | "female";
@@ -210,7 +210,7 @@ export function ReservationModal({ booth, account, season, onClose, onSubmit }: 
         setSubmitError(result.error);
         return;
       }
-      onSubmit();
+      onSubmit(result.orderNumber);
     } finally {
       setSubmitting(false);
     }

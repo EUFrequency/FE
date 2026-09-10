@@ -6,12 +6,14 @@ import { useAdminStore } from "../../_lib/store";
 import { listReservationsAction } from "../../_lib/reservation-actions";
 import { Button } from "../ui";
 import { PendingPanel } from "./reservations/PendingPanel";
-import { ConfirmedPanel } from "./reservations/ConfirmedPanel";
+import { ProcessedPanel } from "./reservations/ProcessedPanel";
+import { OrderHistoryPanel } from "./reservations/OrderHistoryPanel";
 import { SettlementPanel } from "./reservations/SettlementPanel";
 
 const SUB_TABS = [
-  { key: "pending", label: "승인 대기" },
-  { key: "confirmed", label: "확정" },
+  { key: "pending", label: "대기" },
+  { key: "processed", label: "처리완료" },
+  { key: "orders", label: "주문 내역" },
   { key: "settlement", label: "결산" },
 ] as const;
 
@@ -73,7 +75,8 @@ export function ReservationsTab() {
       </div>
 
       {sub === "pending" && <PendingPanel />}
-      {sub === "confirmed" && <ConfirmedPanel />}
+      {sub === "processed" && <ProcessedPanel />}
+      {sub === "orders" && <OrderHistoryPanel />}
       {sub === "settlement" && <SettlementPanel />}
     </div>
   );

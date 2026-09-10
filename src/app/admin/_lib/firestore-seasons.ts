@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { queueDeleteLayout } from "./firestore-layouts";
 import type { Season, SeasonStatus } from "./types";
 
 const COLLECTION = "seasons";
@@ -66,4 +67,23 @@ export async function addSeason(season: Omit<Season, "status">): Promise<void> {
 export async function endSeasonEarly(id: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   await seasonsCollection().doc(id).update({ endDate: today, earlyEndedAt: today });
+}
+
+/**
+ * 시즌 삭제. 진행중인 시즌은 삭제할 수 없음(먼저 조기종료해야 함) - 축제 도중에
+ * 갑자기 없어지는 걸 막기 위한 안전장치. 그 시즌의 배치도도 같이 정리됨.
+ */
+export async function deleteSeason(id: string): Promise<void> {
+  const doc = await seasonsCollection().doc(id).get();
+  if (!doc.exists) return;
+
+  const data = doc.data() as SeasonDocData;
+  if (computeStatus(data) === "ongoing") {
+    throw new Error("진행중인 시즌은 삭제할 수 없습니다. 먼저 조기종료해주세요.");
+  }
+
+  const batch = getAdminDb().batch();
+  batch.delete(doc.ref);
+  queueDeleteLayout(batch, id);
+  await batch.commit();
 }

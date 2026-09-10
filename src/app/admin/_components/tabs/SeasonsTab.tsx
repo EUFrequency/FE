@@ -3,7 +3,12 @@
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../_lib/store";
 import { createId } from "../../_lib/id";
-import { addSeasonAction, endSeasonEarlyAction, listSeasonsAction } from "../../_lib/season-actions";
+import {
+  addSeasonAction,
+  deleteSeasonAction,
+  endSeasonEarlyAction,
+  listSeasonsAction,
+} from "../../_lib/season-actions";
 import type { Season, SeasonStatus, SeasonType } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle } from "../ui";
 
@@ -29,6 +34,7 @@ export function SeasonsTab() {
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [showAddForm, setShowAddForm] = useState(false);
   const [endingId, setEndingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -62,6 +68,21 @@ export function SeasonsTab() {
       setRowError(e instanceof Error ? e.message : "조기종료에 실패했습니다.");
     } finally {
       setEndingId(null);
+    }
+  }
+
+  async function handleDelete(season: Season) {
+    if (!confirm(`'${season.name}'을(를) 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    setRowError(null);
+    setDeletingId(season.id);
+    try {
+      const result = await deleteSeasonAction(season.id);
+      if (!result.ok) throw new Error(result.error);
+      dispatch({ type: "seasons/delete", payload: { id: season.id } });
+    } catch (e) {
+      setRowError(e instanceof Error ? e.message : "삭제에 실패했습니다.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -174,18 +195,26 @@ export function SeasonsTab() {
                       <span className="ml-1 text-red-500">(조기종료)</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    {season.status === "ongoing" ? (
-                      <Button
-                        variant="danger"
-                        disabled={endingId === season.id}
-                        onClick={() => handleEndEarly(season)}
-                      >
-                        {endingId === season.id ? "처리 중..." : "조기종료"}
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-neutral-400 dark:text-neutral-500">-</span>
-                    )}
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      {season.status === "ongoing" ? (
+                        <Button
+                          variant="danger"
+                          disabled={endingId === season.id}
+                          onClick={() => handleEndEarly(season)}
+                        >
+                          {endingId === season.id ? "처리 중..." : "조기종료"}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="danger"
+                          disabled={deletingId === season.id}
+                          onClick={() => handleDelete(season)}
+                        >
+                          {deletingId === season.id ? "삭제 중..." : "삭제"}
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -206,7 +235,8 @@ export function SeasonsTab() {
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
         상태는 기간(시작일~종료일)에 따라 자동으로 정해집니다. 진행중인 시즌을 예정보다 일찍
         끝내야 할 때만 &quot;조기종료&quot;를 누르세요 - 종료일이 오늘 날짜로 바뀌고 되돌릴 수 없습니다.
-        같은 기간에 두 시즌이 겹칠 수는 없습니다.
+        같은 기간에 두 시즌이 겹칠 수는 없습니다. 진행중이 아닌 시즌은 삭제할 수 있고(그 시즌의
+        배치도도 함께 삭제됨), 진행중인 시즌은 먼저 조기종료해야 삭제할 수 있습니다.
       </p>
     </div>
   );

@@ -2,10 +2,12 @@
 
 type Props = {
   boothName: string;
+  /** 접수 시 발급된 주문번호 */
+  orderNumber: number | null;
   onClose: () => void;
 };
 
-export function SuccessDialog({ boothName, onClose }: Props) {
+export function SuccessDialog({ boothName, orderNumber, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center px-6"
@@ -34,6 +36,16 @@ export function SuccessDialog({ boothName, onClose }: Props) {
           <span className="font-semibold">{boothName}</span> 예약이
           완료되었습니다.
         </p>
+        {orderNumber != null && orderNumber > 0 && (
+          <div className="mx-auto mt-4 w-fit rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-3">
+            <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+              주문번호
+            </div>
+            <div className="mt-0.5 font-mono text-2xl font-bold text-amber-600 dark:text-amber-400">
+              #{orderNumber}
+            </div>
+          </div>
+        )}
         <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-400">
           입금 확인 후 예약이 확정됩니다.
           <br />

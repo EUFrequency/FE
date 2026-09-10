@@ -2,39 +2,68 @@
 
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
+import type { ReservationStatus } from "../../../_lib/types";
 import { Card, EmptyState, Label, Select } from "../../ui";
 import { ReservationDetails } from "./ReservationDetails";
 
-export function ConfirmedPanel() {
+type ProcessedStatus = Extract<ReservationStatus, "approved" | "rejected">;
+
+const STATUS_TABS: { key: ProcessedStatus; label: string }[] = [
+  { key: "approved", label: "확정" },
+  { key: "rejected", label: "반려" },
+];
+
+export function ProcessedPanel() {
   const { state } = useAdminStore();
+  const [status, setStatus] = useState<ProcessedStatus>("approved");
   const [boothFilter, setBoothFilter] = useState<string>("all");
 
-  const confirmed = useMemo(
-    () => state.reservations.filter((r) => r.status === "approved"),
-    [state.reservations],
+  const byStatus = useMemo(
+    () => state.reservations.filter((r) => r.status === status),
+    [state.reservations, status],
   );
 
   const boothOptions = useMemo(() => {
     const map = new Map<string, string>();
-    confirmed.forEach((r) => map.set(r.boothId, r.boothName));
+    byStatus.forEach((r) => map.set(r.boothId, r.boothName));
     return Array.from(map.entries());
-  }, [confirmed]);
+  }, [byStatus]);
 
-  const filtered = confirmed.filter(
-    (r) => boothFilter === "all" || r.boothId === boothFilter,
+  // 상태 탭을 바꾸면 이전에 골라둔 주점이 이번 목록엔 없을 수 있으니 자동으로 전체로 리셋
+  const boothFilterValid = boothFilter === "all" || boothOptions.some(([id]) => id === boothFilter);
+  const effectiveBoothFilter = boothFilterValid ? boothFilter : "all";
+
+  const filtered = byStatus.filter(
+    (r) => effectiveBoothFilter === "all" || r.boothId === effectiveBoothFilter,
   );
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm text-neutral-500 dark:text-neutral-400">
-          확정된 예약 {filtered.length}건
-        </span>
+        <div className="flex gap-1 rounded-lg border border-black/10 p-1 dark:border-white/10">
+          {STATUS_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => {
+                setStatus(t.key);
+                setBoothFilter("all");
+              }}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                status === t.key
+                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                  : "text-neutral-500 hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/5"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2">
           <Label>주점</Label>
           <Select
             className="w-48"
-            value={boothFilter}
+            value={effectiveBoothFilter}
             onChange={(e) => setBoothFilter(e.target.value)}
           >
             <option value="all">전체 주점</option>
@@ -47,8 +76,14 @@ export function ConfirmedPanel() {
         </label>
       </div>
 
+      <span className="block text-sm text-neutral-500 dark:text-neutral-400">
+        {STATUS_TABS.find((t) => t.key === status)?.label} {filtered.length}건
+      </span>
+
       {filtered.length === 0 ? (
-        <EmptyState>확정된 예약이 없습니다.</EmptyState>
+        <EmptyState>
+          {status === "approved" ? "확정된 예약이 없습니다." : "반려된 예약이 없습니다."}
+        </EmptyState>
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">

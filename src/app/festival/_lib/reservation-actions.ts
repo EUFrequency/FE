@@ -4,9 +4,14 @@ import { createReservation } from "@/app/admin/_lib/firestore-reservations";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import type { Reservation } from "@/app/admin/_lib/types";
 
-export type SubmitReservationInput = Omit<Reservation, "id" | "status" | "createdAt">;
+export type SubmitReservationInput = Omit<
+  Reservation,
+  "id" | "status" | "createdAt" | "orderNumber" | "assignedAlias"
+>;
 
-export type SubmitReservationResult = { ok: true } | { ok: false; error: string };
+export type SubmitReservationResult =
+  | { ok: true; orderNumber: number }
+  | { ok: false; error: string };
 
 /** 공개 예약 폼에서 호출 - 관리자 인증이 필요 없음 */
 export async function submitReservationAction(
@@ -31,8 +36,8 @@ export async function submitReservationAction(
   }
 
   try {
-    await createReservation(input);
-    return { ok: true };
+    const { orderNumber } = await createReservation(input);
+    return { ok: true, orderNumber };
   } catch (e) {
     const message =
       e instanceof FirebaseNotConfiguredError

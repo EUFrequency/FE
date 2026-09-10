@@ -15,6 +15,7 @@ type Action =
   | { type: "seasons/replaceAll"; payload: Season[] }
   | { type: "seasons/add"; payload: Season }
   | { type: "seasons/endEarly"; payload: { id: string; endDate: string } }
+  | { type: "seasons/delete"; payload: { id: string } }
   | { type: "reservations/replaceAll"; payload: Reservation[] }
   | { type: "reservations/approve"; payload: { id: string } }
   | { type: "reservations/reject"; payload: { id: string } }
@@ -43,6 +44,9 @@ function reducer(state: State, action: Action): State {
       );
       return { ...state, seasons };
     }
+
+    case "seasons/delete":
+      return { ...state, seasons: state.seasons.filter((s) => s.id !== action.payload.id) };
 
     case "reservations/replaceAll":
       return { ...state, reservations: action.payload };

@@ -10,8 +10,15 @@ const GENDER_LABEL: Record<"male" | "female", string> = {
 };
 
 /** 과팅 O/X 배지 + 펼쳐보기로 보는 주문 영수증(메뉴별 수량) 및 과팅 참석자 학과 */
-export function ReservationDetails({ reservation }: { reservation: Reservation }) {
-  const [open, setOpen] = useState(false);
+export function ReservationDetails({
+  reservation,
+  defaultOpen = false,
+}: {
+  reservation: Reservation;
+  /** 주점별 메뉴판처럼 처음부터 펼쳐서 보여주고 싶을 때 true */
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div>
