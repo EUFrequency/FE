@@ -7,10 +7,13 @@ export type Season = {
   id: string;
   name: string;
   type: SeasonType;
+  /** startDate/endDate/earlyEndedAt로부터 항상 자동 계산됨 - 직접 수정하지 않음 */
   status: SeasonStatus;
   year: number;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
+  /** 조기종료한 날짜(YYYY-MM-DD). 설정되면 이후 status는 무조건 ended로 고정됨 */
+  earlyEndedAt: string | null;
 };
 
 export type ReservationStatus = "pending" | "approved" | "rejected";

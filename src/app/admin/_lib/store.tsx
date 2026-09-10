@@ -11,18 +11,10 @@ type State = {
   booths: AdminBooth[];
 };
 
-/** 시즌의 시작/종료일과 오늘 날짜를 비교해 자연스러운 상태를 계산 (서버와 동일 로직) */
-function deriveNaturalStatus(season: Pick<Season, "startDate" | "endDate">) {
-  const today = new Date().toISOString().slice(0, 10);
-  if (today < season.startDate) return "upcoming" as const;
-  if (today > season.endDate) return "ended" as const;
-  return "ongoing" as const;
-}
-
 type Action =
   | { type: "seasons/replaceAll"; payload: Season[] }
   | { type: "seasons/add"; payload: Season }
-  | { type: "seasons/activate"; payload: { id: string } }
+  | { type: "seasons/endEarly"; payload: { id: string; endDate: string } }
   | { type: "reservations/replaceAll"; payload: Reservation[] }
   | { type: "reservations/approve"; payload: { id: string } }
   | { type: "reservations/reject"; payload: { id: string } }
@@ -43,12 +35,12 @@ function reducer(state: State, action: Action): State {
     case "seasons/add":
       return { ...state, seasons: [action.payload, ...state.seasons] };
 
-    case "seasons/activate": {
-      const seasons = state.seasons.map((s) => {
-        if (s.id === action.payload.id) return { ...s, status: "ongoing" as const };
-        if (s.status === "ongoing") return { ...s, status: deriveNaturalStatus(s) };
-        return s;
-      });
+    case "seasons/endEarly": {
+      const seasons = state.seasons.map((s) =>
+        s.id === action.payload.id
+          ? { ...s, endDate: action.payload.endDate, earlyEndedAt: action.payload.endDate, status: "ended" as const }
+          : s,
+      );
       return { ...state, seasons };
     }
 

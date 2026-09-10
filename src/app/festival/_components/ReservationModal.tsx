@@ -4,19 +4,21 @@ import { useMemo, useState } from "react";
 import {
   BANKS,
   DEPARTMENTS,
-  FESTIVAL_DATES,
   FESTIVAL_TIMES,
   MATCHING_FEE_PER_PERSON,
 } from "../data";
 import type { FestivalBooth } from "../_lib/palette";
+import { seasonDateOptions } from "../_lib/season-dates";
 import { submitReservationAction } from "../_lib/reservation-actions";
 import { MenuThumb } from "./MenuThumb";
-import type { Account } from "@/app/admin/_lib/types";
+import type { Account, Season } from "@/app/admin/_lib/types";
 
 type Props = {
   booth: FestivalBooth;
   /** 이 주점에 실제로 표시할 입금 계좌. 아직 관리자가 계좌를 등록하지 않았으면 null */
   account: Account | null;
+  /** 지금 진행중인 축제 시즌 - 날짜 선택지를 이 기간 안에서만 뽑음 */
+  season: Season;
   onClose: () => void;
   onSubmit: () => void;
 };
@@ -57,13 +59,15 @@ function initialForm(): Form {
   };
 }
 
-export function ReservationModal({ booth, account, onClose, onSubmit }: Props) {
+export function ReservationModal({ booth, account, season, onClose, onSubmit }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [form, setForm] = useState<Form>(initialForm);
   const [showMatchingInfo, setShowMatchingInfo] = useState(false);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const dateOptions = useMemo(() => seasonDateOptions(season), [season]);
 
   const menuTotal = useMemo(
     () =>
@@ -167,7 +171,7 @@ export function ReservationModal({ booth, account, onClose, onSubmit }: Props) {
   };
 
   const selectedDateLabel =
-    FESTIVAL_DATES.find((d) => d.value === form.date)?.label ?? "";
+    dateOptions.find((d) => d.value === form.date)?.label ?? "";
 
   const handleFinalSubmit = async () => {
     if (!step2Valid || submitting) return;
@@ -247,6 +251,7 @@ export function ReservationModal({ booth, account, onClose, onSubmit }: Props) {
             <Step1
               booth={booth}
               form={form}
+              dateOptions={dateOptions}
               setField={setField}
               toggleMatching={toggleMatching}
               setQty={setQty}
@@ -337,6 +342,7 @@ function StepDots({ step }: { step: 1 | 2 }) {
 type Step1Props = {
   booth: FestivalBooth;
   form: Form;
+  dateOptions: { value: string; label: string }[];
   setField: <K extends keyof Form>(k: K, v: Form[K]) => void;
   toggleMatching: () => void;
   setQty: (menuId: string, delta: number) => void;
@@ -347,6 +353,7 @@ type Step1Props = {
 function Step1({
   booth,
   form,
+  dateOptions,
   setField,
   toggleMatching,
   setQty,
@@ -364,10 +371,7 @@ function Step1({
               value={form.date}
               onChange={(v) => setField("date", v)}
               placeholder="선택"
-              options={FESTIVAL_DATES.map((d) => ({
-                value: d.value,
-                label: d.label,
-              }))}
+              options={dateOptions}
             />
           </Field>
           <Field label="시간">

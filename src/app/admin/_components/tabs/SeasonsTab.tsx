@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../_lib/store";
 import { createId } from "../../_lib/id";
-import { activateSeasonAction, addSeasonAction, listSeasonsAction } from "../../_lib/season-actions";
+import { addSeasonAction, endSeasonEarlyAction, listSeasonsAction } from "../../_lib/season-actions";
 import type { Season, SeasonStatus, SeasonType } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle } from "../ui";
 
@@ -28,7 +28,7 @@ export function SeasonsTab() {
   const { state, dispatch, seasonsError } = useAdminStore();
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [showAddForm, setShowAddForm] = useState(false);
-  const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [endingId, setEndingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -43,17 +43,25 @@ export function SeasonsTab() {
       .sort((a, b) => b.startDate.localeCompare(a.startDate));
   }, [state.seasons, yearFilter]);
 
-  async function handleActivate(id: string) {
+  async function handleEndEarly(season: Season) {
+    if (
+      !confirm(
+        `'${season.name}'을(를) 오늘 날짜로 조기종료할까요?\n종료일이 오늘로 변경되고 되돌릴 수 없습니다.`,
+      )
+    ) {
+      return;
+    }
     setRowError(null);
-    setActivatingId(id);
+    setEndingId(season.id);
     try {
-      const result = await activateSeasonAction(id);
+      const result = await endSeasonEarlyAction(season.id);
       if (!result.ok) throw new Error(result.error);
-      dispatch({ type: "seasons/activate", payload: { id } });
+      const today = new Date().toISOString().slice(0, 10);
+      dispatch({ type: "seasons/endEarly", payload: { id: season.id, endDate: today } });
     } catch (e) {
-      setRowError(e instanceof Error ? e.message : "활성화에 실패했습니다.");
+      setRowError(e instanceof Error ? e.message : "조기종료에 실패했습니다.");
     } finally {
-      setActivatingId(null);
+      setEndingId(null);
     }
   }
 
@@ -71,10 +79,15 @@ export function SeasonsTab() {
     }
   }
 
-  async function handleAdd(season: Season) {
+  async function handleAdd(season: Omit<Season, "status">) {
     const result = await addSeasonAction(season);
     if (!result.ok) throw new Error(result.error);
-    dispatch({ type: "seasons/add", payload: season });
+    // 서버가 계산한 status를 그대로 받아오려면 새로고침이 정확하지만,
+    // 방금 만든 시즌은 오늘 기준 상태를 이 자리에서 바로 계산해서 낙관적으로 반영
+    const today = new Date().toISOString().slice(0, 10);
+    const status: SeasonStatus =
+      today < season.startDate ? "upcoming" : today > season.endDate ? "ended" : "ongoing";
+    dispatch({ type: "seasons/add", payload: { ...season, status } });
     setShowAddForm(false);
   }
 
@@ -157,20 +170,21 @@ export function SeasonsTab() {
                   </td>
                   <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
                     {season.startDate} ~ {season.endDate}
+                    {season.earlyEndedAt && (
+                      <span className="ml-1 text-red-500">(조기종료)</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {season.status === "ongoing" ? (
-                      <Button variant="ghost" disabled>
-                        진행 중
+                      <Button
+                        variant="danger"
+                        disabled={endingId === season.id}
+                        onClick={() => handleEndEarly(season)}
+                      >
+                        {endingId === season.id ? "처리 중..." : "조기종료"}
                       </Button>
                     ) : (
-                      <Button
-                        variant="secondary"
-                        disabled={activatingId === season.id}
-                        onClick={() => handleActivate(season.id)}
-                      >
-                        {activatingId === season.id ? "처리 중..." : "활성화"}
-                      </Button>
+                      <span className="text-xs text-neutral-400 dark:text-neutral-500">-</span>
                     )}
                   </td>
                 </tr>
@@ -190,8 +204,9 @@ export function SeasonsTab() {
         </div>
       </Card>
       <p className="text-xs text-neutral-400 dark:text-neutral-500">
-        &quot;활성화&quot;를 누르면 해당 시즌이 진행중 상태가 되고, 기존에
-        진행중이던 다른 시즌은 기간에 따라 예정/종료 상태로 자동 전환됩니다.
+        상태는 기간(시작일~종료일)에 따라 자동으로 정해집니다. 진행중인 시즌을 예정보다 일찍
+        끝내야 할 때만 &quot;조기종료&quot;를 누르세요 - 종료일이 오늘 날짜로 바뀌고 되돌릴 수 없습니다.
+        같은 기간에 두 시즌이 겹칠 수는 없습니다.
       </p>
     </div>
   );
@@ -202,7 +217,7 @@ function AddSeasonForm({
   onSubmit,
 }: {
   onCancel: () => void;
-  onSubmit: (season: Season) => Promise<void>;
+  onSubmit: (season: Omit<Season, "status">) => Promise<void>;
 }) {
   const currentYear = new Date().getFullYear();
   const [name, setName] = useState("");
@@ -220,9 +235,6 @@ function AddSeasonForm({
     setError(null);
     setSubmitting(true);
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const status =
-        today < startDate ? "upcoming" : today > endDate ? "ended" : "ongoing";
       await onSubmit({
         id: createId("season"),
         name: name.trim(),
@@ -230,7 +242,7 @@ function AddSeasonForm({
         year,
         startDate,
         endDate,
-        status,
+        earlyEndedAt: null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "추가에 실패했습니다.");

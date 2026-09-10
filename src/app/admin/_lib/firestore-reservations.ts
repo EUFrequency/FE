@@ -1,6 +1,5 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { buildSeedReservations } from "./mock-data";
 import type { Reservation, ReservationStatus } from "./types";
 
 const COLLECTION = "reservations";
@@ -14,21 +13,7 @@ function toReservation(doc: FirebaseFirestore.QueryDocumentSnapshot): Reservatio
   return { id: doc.id, ...data };
 }
 
-/** 컬렉션이 비어 있으면(최초 1회) 기존 더미 예약 데이터를 그대로 채워 넣음 */
-async function seedIfEmpty() {
-  const snap = await reservationsCollection().limit(1).get();
-  if (!snap.empty) return;
-
-  const batch = getAdminDb().batch();
-  for (const reservation of buildSeedReservations()) {
-    const { id, ...rest } = reservation;
-    batch.set(reservationsCollection().doc(id), rest);
-  }
-  await batch.commit();
-}
-
 export async function listReservations(): Promise<Reservation[]> {
-  await seedIfEmpty();
   const snap = await reservationsCollection().get();
   return snap.docs.map(toReservation);
 }

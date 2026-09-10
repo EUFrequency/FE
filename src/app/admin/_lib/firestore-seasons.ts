@@ -1,65 +1,69 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { buildSeedSeasons } from "./mock-data";
 import type { Season, SeasonStatus } from "./types";
 
 const COLLECTION = "seasons";
+
+/** Firestore에는 status를 저장하지 않음 - 항상 날짜 기준으로 계산해서 붙여줌 */
+type SeasonDocData = Omit<Season, "id" | "status">;
 
 function seasonsCollection() {
   return getAdminDb().collection(COLLECTION);
 }
 
-function toSeason(doc: FirebaseFirestore.QueryDocumentSnapshot): Season {
-  const data = doc.data() as Omit<Season, "id">;
-  return { id: doc.id, ...data };
-}
-
-/** 컬렉션이 비어 있으면(최초 1회) 기존 더미 시즌 데이터를 그대로 채워 넣음 */
-async function seedIfEmpty() {
-  const snap = await seasonsCollection().limit(1).get();
-  if (!snap.empty) return;
-
-  const batch = getAdminDb().batch();
-  for (const season of buildSeedSeasons()) {
-    const { id, ...rest } = season;
-    batch.set(seasonsCollection().doc(id), rest);
-  }
-  await batch.commit();
-}
-
-export async function listSeasons(): Promise<Season[]> {
-  await seedIfEmpty();
-  const snap = await seasonsCollection().get();
-  return snap.docs.map(toSeason).sort((a, b) => b.startDate.localeCompare(a.startDate));
-}
-
-export async function addSeason(season: Season): Promise<void> {
-  const { id, ...rest } = season;
-  await seasonsCollection().doc(id).set(rest);
-}
-
-/** 시즌의 시작/종료일과 오늘 날짜를 비교해 자연스러운 상태를 계산 */
-function deriveNaturalStatus(season: Pick<Season, "startDate" | "endDate">): SeasonStatus {
+/** 오늘 날짜, 조기종료 여부, 시작/종료일만으로 상태를 계산 - 관리자가 따로 켜고 끌 필요 없음 */
+function computeStatus(season: Pick<Season, "startDate" | "endDate" | "earlyEndedAt">): SeasonStatus {
+  if (season.earlyEndedAt) return "ended";
   const today = new Date().toISOString().slice(0, 10);
   if (today < season.startDate) return "upcoming";
   if (today > season.endDate) return "ended";
   return "ongoing";
 }
 
-/**
- * 특정 시즌을 진행중으로 전환하고, 기존에 진행중이던 다른 시즌들은
- * 날짜 기준 자연 상태(예정/종료)로 되돌림.
- */
-export async function activateSeason(id: string): Promise<void> {
-  const db = getAdminDb();
-  const currentlyOngoing = await seasonsCollection().where("status", "==", "ongoing").get();
+function toSeason(id: string, data: SeasonDocData): Season {
+  return { id, ...data, status: computeStatus(data) };
+}
 
-  const batch = db.batch();
-  currentlyOngoing.docs.forEach((doc) => {
-    if (doc.id === id) return;
-    const data = doc.data() as Omit<Season, "id">;
-    batch.update(doc.ref, { status: deriveNaturalStatus(data) });
-  });
-  batch.update(seasonsCollection().doc(id), { status: "ongoing" satisfies SeasonStatus });
-  await batch.commit();
+export async function listSeasons(): Promise<Season[]> {
+  const snap = await seasonsCollection().get();
+  return snap.docs
+    .map((doc) => toSeason(doc.id, doc.data() as SeasonDocData))
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+}
+
+/** startDate~endDate 구간이 다른 시즌과 겹치는지 확인 (excludeId는 비교에서 제외) */
+async function findOverlap(
+  startDate: string,
+  endDate: string,
+  excludeId?: string,
+): Promise<Season | null> {
+  const snap = await seasonsCollection().get();
+  for (const doc of snap.docs) {
+    if (doc.id === excludeId) continue;
+    const data = doc.data() as SeasonDocData;
+    const noOverlap = endDate < data.startDate || startDate > data.endDate;
+    if (!noOverlap) return toSeason(doc.id, data);
+  }
+  return null;
+}
+
+export async function addSeason(season: Omit<Season, "status">): Promise<void> {
+  const overlap = await findOverlap(season.startDate, season.endDate);
+  if (overlap) {
+    throw new Error(
+      `'${overlap.name}'(${overlap.startDate} ~ ${overlap.endDate})과 기간이 겹칩니다. 기간을 다시 확인해주세요.`,
+    );
+  }
+  const { id, ...rest } = season;
+  await seasonsCollection().doc(id).set(rest);
+}
+
+/**
+ * 진행중인 시즌을 지금 당장 조기종료함.
+ * 종료일을 오늘 날짜로 당기고 earlyEndedAt을 남겨서, 그 순간부터 상태가 무조건 "종료"로 고정됨
+ * (그날 하루는 아직 기간 안이라 날짜 계산만으론 "진행중"으로 보일 수 있어서, 명시적으로 고정).
+ */
+export async function endSeasonEarly(id: string): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  await seasonsCollection().doc(id).update({ endDate: today, earlyEndedAt: today });
 }
