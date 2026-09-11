@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createId } from "../../_lib/id";
+import { formatPhoneInput } from "@/lib/phone";
 import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
 import type { AdminBooth, MenuItem, TableConfig } from "../../_lib/types";
 import { AccountManager } from "../AccountManager";
@@ -175,7 +176,7 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
           <Input
             className="mt-1.5"
             value={ownerPhone}
-            onChange={(e) => setOwnerPhone(e.target.value)}
+            onChange={(e) => setOwnerPhone(formatPhoneInput(e.target.value))}
             placeholder="010-1234-5678"
           />
         </label>

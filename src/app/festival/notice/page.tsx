@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   description: "Frequency 예약 확정자 안내사항",
 };
 
+// 문의처 등 관리자가 바꾸는 정보가 즉시 반영되어야 해서 캐시 없이 매 요청마다 새로 조회함(SSR)
+export const dynamic = "force-dynamic";
+
 export default async function FestivalNoticePage() {
   const contact = await getContactInfo().catch(() => null);
 
@@ -77,11 +80,12 @@ export default async function FestivalNoticePage() {
           <Section num={4} title="이 밖에 꼭 알아두세요">
             <ul className="list-inside list-disc space-y-2 marker:text-amber-500">
               <li>
-                입금자명은 예약 시 적어주신{" "}
+                입금자명은{" "}
                 <b className="font-semibold text-neutral-800 dark:text-neutral-100">
-                  대표 예약자 성함
+                  예약 시 적어주신 이름 + 전화번호 뒤 4자리
                 </b>
-                과 동일하게 해주세요. 이름이 다르면 확인이 늦어질 수 있어요.
+                (예: 홍길동 1234)로 해주세요. 예약 화면에도 안내되어 있어요. 형식이
+                다르면 확인이 늦어질 수 있어요.
               </li>
               <li>전화번호 하나로는 예약을 한 건만 하실 수 있어요.</li>
               <li>

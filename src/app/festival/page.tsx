@@ -3,8 +3,8 @@ import { listBoothsLight } from "@/app/admin/_lib/firestore-booths";
 import { getFestivalData } from "./_lib/active-season";
 import { FestivalClient } from "./_components/FestivalClient";
 
-// Firestore 읽기를 매 방문마다 하지 않도록 짧게 캐시 (관리자가 바꾸면 최대 이 시간만큼 늦게 반영됨)
-export const revalidate = 30;
+// 예약 오픈/마감, 주점 목록 등 실시간성이 중요한 정보라 캐시 없이 매 요청마다 새로 조회함(SSR)
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(
   _props: unknown,

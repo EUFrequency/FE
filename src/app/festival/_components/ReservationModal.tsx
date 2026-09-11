@@ -12,6 +12,7 @@ import { seasonDateOptions } from "../_lib/season-dates";
 import { submitReservationAction } from "../_lib/reservation-actions";
 import { checkAvailabilityAction } from "../_lib/availability-actions";
 import { MenuThumb } from "./MenuThumb";
+import { formatPhoneInput } from "@/lib/phone";
 import {
   generalHeadcountRange,
   matchingHeadcountOptions,
@@ -506,10 +507,8 @@ function Step1({
         <Field label="전화번호" className="mt-4">
           <Input
             value={form.phone}
-            onChange={(v) =>
-              setField("phone", v.replace(/[^0-9]/g, "").slice(0, 11))
-            }
-            placeholder="01012345678"
+            onChange={(v) => setField("phone", formatPhoneInput(v))}
+            placeholder="010-1234-5678"
             inputMode="numeric"
           />
         </Field>
@@ -771,6 +770,18 @@ function Step2({
     .map((m) => ({ menu: m, qty: form.quantities[m.id] ?? 0 }))
     .filter((x) => x.qty > 0);
 
+  const depositorName = `${form.name.trim()} ${form.phone.slice(-4)}`;
+  const [copiedName, setCopiedName] = useState(false);
+  const copyDepositorName = async () => {
+    try {
+      await navigator.clipboard.writeText(depositorName);
+      setCopiedName(true);
+      setTimeout(() => setCopiedName(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div className="space-y-6">
       {overbooked && (
@@ -904,8 +915,24 @@ function Step2({
               <span className="font-semibold text-amber-600 dark:text-amber-400">
                 {grandTotal.toLocaleString()}원
               </span>
-              을 입금해주세요. 입금자명은 대표자 이름으로 해주세요.
+              을 입금해주세요.
             </p>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+              <div className="text-xs leading-5 text-neutral-700 dark:text-neutral-200">
+                입금자명은{" "}
+                <span className="font-mono font-semibold text-amber-700 dark:text-amber-400">
+                  {depositorName}
+                </span>
+                로 해주세요 (이름 + 전화번호 뒤 4자리)
+              </div>
+              <button
+                type="button"
+                onClick={copyDepositorName}
+                className="h-8 shrink-0 rounded-full border border-amber-500/50 bg-white px-3 text-xs font-medium text-amber-600 transition hover:bg-amber-500/10 dark:bg-transparent dark:text-amber-400"
+              >
+                {copiedName ? "복사됨" : "복사"}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">

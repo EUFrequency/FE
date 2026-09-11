@@ -280,11 +280,16 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
           위에서 행/열을 입력하고 &quot;격자 적용&quot;을 눌러 배치도를 생성하세요.
         </p>
       ) : (
-        <div
-          className="grid gap-2 overflow-x-auto"
-          style={{ gridTemplateColumns: `repeat(${cols}, minmax(110px, 1fr))` }}
-        >
-          {Array.from({ length: rows }).map((_, r) =>
+        <div className="space-y-2">
+          <div className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-400/40 text-xs font-medium tracking-[0.3em] text-neutral-400 dark:border-neutral-600/50 dark:text-neutral-500">
+            <span aria-hidden>🎤</span>
+            무대
+          </div>
+          <div
+            className="grid gap-2 overflow-x-auto"
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(110px, 1fr))` }}
+          >
+            {Array.from({ length: rows }).map((_, r) =>
             Array.from({ length: cols }).map((_, c) => {
               const cellKey = `${r}-${c}`;
               const occupantId = cells[cellKey] ?? null;
@@ -318,7 +323,8 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
                 </div>
               );
             }),
-          )}
+            )}
+          </div>
         </div>
       )}
 
