@@ -1,5 +1,6 @@
 import type { Metadata, ResolvingMetadata } from "next";
 import { listBoothsLight } from "@/app/admin/_lib/firestore-booths";
+import { getDepartments } from "@/app/admin/_lib/firestore-settings";
 import { getFestivalData } from "./_lib/active-season";
 import { FestivalClient } from "./_components/FestivalClient";
 
@@ -30,9 +31,10 @@ export async function generateMetadata(
 
 export default async function FestivalPage() {
   // 이미지는 여기서 미리 안 가져옴 - 주점 카드를 눌렀을 때만 그 주점 것만 불러옴
-  const [booths, { activeSeason, generalOpen, matchingOpen }] = await Promise.all([
+  const [booths, { activeSeason, generalOpen, matchingOpen }, departments] = await Promise.all([
     listBoothsLight().catch(() => []),
     getFestivalData(),
+    getDepartments().catch(() => []),
   ]);
 
   return (
@@ -41,6 +43,7 @@ export default async function FestivalPage() {
       season={activeSeason}
       generalOpen={generalOpen}
       matchingOpen={matchingOpen}
+      departments={departments}
     />
   );
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { getBoothLight } from "@/app/admin/_lib/firestore-booths";
+import { getDepartments } from "@/app/admin/_lib/firestore-settings";
 import {
   createReservation,
   hasReservationForPhone,
@@ -17,7 +18,7 @@ import type {
 } from "@/app/admin/_lib/types";
 import { getFestivalData } from "./active-season";
 import { seasonDateOptions } from "./season-dates";
-import { BANKS, DEPARTMENTS, FESTIVAL_TIMES, MATCHING_FEE_PER_PERSON } from "../data";
+import { BANKS, FESTIVAL_TIMES, MATCHING_FEE_PER_PERSON } from "../data";
 
 export type SubmitReservationInput = Omit<
   Reservation,
@@ -76,7 +77,8 @@ export async function submitReservationAction(
   if (phone.length < 9 || phone.length > 11) {
     return { ok: false, error: "전화번호 형식이 올바르지 않습니다." };
   }
-  if (!DEPARTMENTS.includes(input.department)) {
+  const departments = await getDepartments();
+  if (!departments.includes(input.department)) {
     return { ok: false, error: "학과를 다시 선택해주세요." };
   }
   if (!BANKS.includes(input.bank)) {
@@ -106,7 +108,7 @@ export async function submitReservationAction(
     if (
       !Array.isArray(depts) ||
       depts.length !== input.headcount ||
-      depts.some((d) => !isNonEmptyText(d) || !DEPARTMENTS.includes(d))
+      depts.some((d) => !isNonEmptyText(d) || !departments.includes(d))
     ) {
       return { ok: false, error: "과팅 참석자 학과 정보가 올바르지 않습니다." };
     }

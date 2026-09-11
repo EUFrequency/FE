@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  BANKS,
-  DEPARTMENTS,
-  FESTIVAL_TIMES,
-  MATCHING_FEE_PER_PERSON,
-} from "../data";
+import { BANKS, FESTIVAL_TIMES, MATCHING_FEE_PER_PERSON } from "../data";
 import type { FestivalBooth } from "../_lib/palette";
 import { seasonDateOptions } from "../_lib/season-dates";
 import { submitReservationAction } from "../_lib/reservation-actions";
@@ -27,6 +22,8 @@ type Props = {
   season: Season;
   /** 지금 과팅 예약 접수 기간인지. false면 과팅 신청 옵션이 막힘 */
   matchingOpen: boolean;
+  /** 학과 선택지 (관리자 페이지에서 관리) */
+  departments: string[];
   onClose: () => void;
   onSubmit: () => void;
 };
@@ -72,6 +69,7 @@ export function ReservationModal({
   account,
   season,
   matchingOpen,
+  departments,
   onClose,
   onSubmit,
 }: Props) {
@@ -355,6 +353,7 @@ export function ReservationModal({
               matchingDisabledReason={matchingDisabledReason}
               matchingSizes={matchingSizes}
               generalRange={generalRange}
+              departments={departments}
             />
           ) : (
             <Step2
@@ -458,6 +457,7 @@ type Step1Props = {
   matchingDisabledReason: string | null;
   matchingSizes: number[];
   generalRange: { min: number; max: number } | null;
+  departments: string[];
 };
 
 function Step1({
@@ -473,6 +473,7 @@ function Step1({
   matchingDisabledReason,
   matchingSizes,
   generalRange,
+  departments,
 }: Step1Props) {
   return (
     <div className="space-y-8">
@@ -517,7 +518,7 @@ function Step1({
             value={form.representativeDept}
             onChange={(v) => setField("representativeDept", v)}
             placeholder="학과 선택"
-            options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+            options={departments.map((d) => ({ value: d, label: d }))}
           />
         </Field>
         <div className="mt-4 grid grid-cols-2 gap-3">
@@ -671,7 +672,7 @@ function Step1({
                           setField("participantDepts", next);
                         }}
                         placeholder="학과 선택"
-                        options={DEPARTMENTS.map((d) => ({
+                        options={departments.map((d) => ({
                           value: d,
                           label: d,
                         }))}

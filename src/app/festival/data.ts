@@ -1,7 +1,11 @@
 /**
- * 예약 폼에서 쓰는 정적 참조 목록. 학과/은행 목록이 바뀌면 여기만 고치면 됨.
+ * 예약 폼에서 쓰는 정적 참조 목록. 은행 목록이 바뀌면 여기만 고치면 됨.
  * (주점 데이터는 Firestore에서 오고, 축제 날짜는 활성 시즌 기간에서 계산됨 -
  *  festival/page.tsx, festival/_lib/season-dates.ts 참고)
+ *
+ * DEPARTMENTS는 관리자 페이지(학과 관리)에서 바꿀 수 있는 기본값/시드 값일 뿐 -
+ * 실제 예약 폼은 firestore-settings.ts의 getDepartments()가 돌려주는 값을 씀
+ * (admin/_lib/firestore-settings.ts 참고).
  */
 export const DEPARTMENTS = [
   "경영학과",

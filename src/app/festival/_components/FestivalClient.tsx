@@ -18,6 +18,7 @@ export function FestivalClient({
   season,
   generalOpen,
   matchingOpen,
+  departments,
 }: {
   booths: AdminBooth[];
   season: Season | null;
@@ -25,6 +26,8 @@ export function FestivalClient({
   generalOpen: boolean;
   /** 과팅 예약 접수 중인지. false면 예약 폼에서 과팅 신청 옵션이 막힘 */
   matchingOpen: boolean;
+  /** 예약 폼의 학과 선택지 (관리자 페이지에서 관리) */
+  departments: string[];
 }) {
   // 배치도용 - 이미지 없이 가벼움. 목록 화면은 이거로 충분.
   const boothsWithAccent = useMemo(() => withAccents(booths), [booths]);
@@ -170,6 +173,7 @@ export function FestivalClient({
             account={paymentAccount}
             season={season}
             matchingOpen={matchingOpen}
+            departments={departments}
             onClose={closeAll}
             onSubmit={() => setFlow("success")}
           />

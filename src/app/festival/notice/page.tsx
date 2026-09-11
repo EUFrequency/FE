@@ -56,8 +56,8 @@ export default async function FestivalNoticePage() {
               이 별칭으로 서로를 확인하시면 됩니다.
             </p>
             <p className="mt-3">
-              아쉽게 매칭 상대를 찾지 못한 경우, 예약을 취소해드리거나 두 분(팀)이서 그대로
-              이용하실지 여부를 카카오톡으로 안내드립니다.
+              아쉽게 매칭 상대를 찾지 못한 경우, 예약을 취소해드리거나 상대 팀 매칭 없이
+              예약자분들끼리 그대로 이용하실지 여부를 카카오톡으로 안내드립니다.
             </p>
             <div className="mt-3 rounded-xl border border-purple-400/30 bg-purple-500/[0.06] p-3 text-[13px] leading-5">
               매칭 상대팀이 약속 시간 기준{" "}

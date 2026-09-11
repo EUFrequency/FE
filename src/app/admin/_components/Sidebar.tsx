@@ -4,7 +4,7 @@ import { logoutAction } from "../actions";
 
 export const ADMIN_TABS = [
   { key: "dashboard", label: "대시보드", group: null },
-  { key: "revenue", label: "매출 관리", group: null },
+  { key: "departments", label: "학과 관리", group: null },
   { key: "seasons", label: "시즌 관리", group: null },
   { key: "reservations", label: "예약", group: "축제 시즌" },
   { key: "booths", label: "주점 등록", group: "축제 시즌" },

@@ -12,7 +12,7 @@ import {
   type AdminTabKey,
 } from "./Sidebar";
 import { DashboardTab } from "./tabs/DashboardTab";
-import { RevenueTab } from "./tabs/RevenueTab";
+import { DepartmentsTab } from "./tabs/DepartmentsTab";
 import { SeasonsTab } from "./tabs/SeasonsTab";
 import { ReservationsTab } from "./tabs/ReservationsTab";
 import { BoothsTab } from "./tabs/BoothsTab";
@@ -113,7 +113,7 @@ export function AdminApp({
 
           <main className="flex-1 overflow-y-auto p-4 sm:p-6">
             {tab === "dashboard" && <DashboardTab />}
-            {tab === "revenue" && <RevenueTab />}
+            {tab === "departments" && <DepartmentsTab />}
             {tab === "seasons" && <SeasonsTab />}
             {tab === "reservations" && <ReservationsTab />}
             {tab === "booths" && <BoothsTab />}
