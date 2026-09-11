@@ -8,6 +8,7 @@ import { Badge, Button, Card, EmptyState, Label, Select } from "../../ui";
 const HEADERS = [
   "순번",
   "대표자 성함",
+  "연락처",
   "메뉴명",
   "가격",
   "개수",
@@ -21,15 +22,27 @@ type DataRow = {
   key: string;
   seq: string;
   representativeName: string;
+  phone: string;
   menuName: string;
   price: string;
   quantity: string;
-  matching: "" | "O" | "X";
+  /** "", "O", "O(남)", "O(여)", "X" */
+  matching: string;
   headcount: string;
   alias: string;
 };
 type SpacerRow = { kind: "spacer"; key: string };
 type Row = DataRow | SpacerRow;
+
+const GENDER_SHORT: Record<"male" | "female", string> = {
+  male: "남",
+  female: "여",
+};
+
+function matchingLabel(r: Reservation): string {
+  if (!r.matching) return "X";
+  return r.matchingGender ? `O(${GENDER_SHORT[r.matchingGender]})` : "O";
+}
 
 /** 확정(승인)된 예약을 접수 순서대로, 메뉴 한 줄씩 펼쳐서 표로 만든다. 주문끼리는 빈 행으로 구분 */
 function buildRows(reservations: Reservation[]): Row[] {
@@ -43,10 +56,11 @@ function buildRows(reservations: Reservation[]): Row[] {
         key: `${r.id}-${ii}`,
         seq: first ? `#${ri + 1}` : "",
         representativeName: first ? r.representativeName : "",
+        phone: first ? r.phone : "",
         menuName: item ? item.menuName : "-",
         price: item ? `${item.unitPrice.toLocaleString()}원` : "",
         quantity: item ? String(item.quantity) : "",
-        matching: first ? (r.matching ? "O" : "X") : "",
+        matching: first ? matchingLabel(r) : "",
         headcount: first ? `${r.headcount}명` : "",
         alias: first ? (r.assignedAlias ?? "-") : "",
       });
@@ -71,6 +85,7 @@ function rowsToCsv(rows: Row[]): string {
       [
         row.seq,
         row.representativeName,
+        row.phone,
         row.menuName,
         row.price,
         row.quantity,
@@ -169,11 +184,12 @@ export function OrderHistoryPanel() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
+            <table className="w-full min-w-[860px] text-left text-sm">
               <thead className="border-b border-black/5 text-xs text-neutral-500 dark:border-white/5 dark:text-neutral-400">
                 <tr>
                   <th className="px-4 py-3 font-medium">순번</th>
                   <th className="px-4 py-3 font-medium">대표자 성함</th>
+                  <th className="px-4 py-3 font-medium">연락처</th>
                   <th className="px-4 py-3 font-medium">메뉴명</th>
                   <th className="px-4 py-3 text-right font-medium">가격</th>
                   <th className="px-4 py-3 text-right font-medium">개수</th>
@@ -190,7 +206,7 @@ export function OrderHistoryPanel() {
                       aria-hidden
                       className="border-b border-black/5 last:border-0 dark:border-white/5"
                     >
-                      {Array.from({ length: 8 }).map((_, i) => (
+                      {Array.from({ length: 9 }).map((_, i) => (
                         <td key={i} className="px-4 py-2.5">
                           &nbsp;
                         </td>
@@ -207,6 +223,9 @@ export function OrderHistoryPanel() {
                       <td className="px-4 py-2.5 text-neutral-700 dark:text-neutral-200">
                         {row.representativeName}
                       </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-neutral-700 dark:text-neutral-200">
+                        {row.phone}
+                      </td>
                       <td className="px-4 py-2.5 text-neutral-700 dark:text-neutral-200">
                         {row.menuName}
                       </td>
@@ -218,7 +237,7 @@ export function OrderHistoryPanel() {
                       </td>
                       <td className="px-4 py-2.5">
                         {row.matching === "" ? null : (
-                          <Badge tone={row.matching === "O" ? "purple" : "neutral"}>
+                          <Badge tone={row.matching.startsWith("O") ? "purple" : "neutral"}>
                             {row.matching}
                           </Badge>
                         )}

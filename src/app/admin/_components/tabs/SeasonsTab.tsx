@@ -8,6 +8,7 @@ import {
   deleteSeasonAction,
   endSeasonEarlyAction,
   listSeasonsAction,
+  updateSeasonAction,
 } from "../../_lib/season-actions";
 import type { Season, SeasonStatus, SeasonType } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select, SectionTitle } from "../ui";
@@ -29,14 +30,32 @@ const STATUS_TONE: Record<SeasonStatus, "amber" | "green" | "neutral"> = {
   ended: "neutral",
 };
 
+/** 오늘 기준 status를 낙관적으로 계산 (서버 응답을 다시 안 받아와도 화면에 바로 반영하기 위함) */
+function computeOptimisticStatus(season: {
+  startDate: string;
+  endDate: string;
+  earlyEndedAt: string | null;
+}): SeasonStatus {
+  if (season.earlyEndedAt) return "ended";
+  const today = new Date().toISOString().slice(0, 10);
+  if (today < season.startDate) return "upcoming";
+  if (today > season.endDate) return "ended";
+  return "ongoing";
+}
+
+type FormMode = "closed" | "add" | Season;
+
 export function SeasonsTab() {
   const { state, dispatch, seasonsError } = useAdminStore();
   const [yearFilter, setYearFilter] = useState<string>("all");
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [formMode, setFormMode] = useState<FormMode>("closed");
   const [endingId, setEndingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
+
+  const editingSeason = typeof formMode === "object" ? formMode : null;
+  const formOpen = formMode !== "closed";
 
   const years = useMemo(() => {
     const set = new Set(state.seasons.map((s) => s.year));
@@ -100,16 +119,23 @@ export function SeasonsTab() {
     }
   }
 
-  async function handleAdd(season: Omit<Season, "status">) {
-    const result = await addSeasonAction(season);
-    if (!result.ok) throw new Error(result.error);
-    // 서버가 계산한 status를 그대로 받아오려면 새로고침이 정확하지만,
-    // 방금 만든 시즌은 오늘 기준 상태를 이 자리에서 바로 계산해서 낙관적으로 반영
-    const today = new Date().toISOString().slice(0, 10);
-    const status: SeasonStatus =
-      today < season.startDate ? "upcoming" : today > season.endDate ? "ended" : "ongoing";
-    dispatch({ type: "seasons/add", payload: { ...season, status } });
-    setShowAddForm(false);
+  async function handleSubmitForm(season: Omit<Season, "status">) {
+    if (editingSeason) {
+      const result = await updateSeasonAction(editingSeason.id, season);
+      if (!result.ok) throw new Error(result.error);
+      dispatch({
+        type: "seasons/update",
+        payload: { ...season, status: computeOptimisticStatus(season) },
+      });
+    } else {
+      const result = await addSeasonAction(season);
+      if (!result.ok) throw new Error(result.error);
+      dispatch({
+        type: "seasons/add",
+        payload: { ...season, status: computeOptimisticStatus(season) },
+      });
+    }
+    setFormMode("closed");
   }
 
   return (
@@ -134,8 +160,11 @@ export function SeasonsTab() {
           <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? "새로고침 중..." : "새로고침"}
           </Button>
-          <Button variant="primary" onClick={() => setShowAddForm((v) => !v)}>
-            {showAddForm ? "닫기" : "+ 새 시즌 추가"}
+          <Button
+            variant="primary"
+            onClick={() => setFormMode((v) => (v === "closed" ? "add" : "closed"))}
+          >
+            {formOpen ? "닫기" : "+ 새 시즌 추가"}
           </Button>
         </div>
       </div>
@@ -152,11 +181,18 @@ export function SeasonsTab() {
         </div>
       )}
 
-      {showAddForm && <AddSeasonForm onCancel={() => setShowAddForm(false)} onSubmit={handleAdd} />}
+      {formOpen && (
+        <SeasonForm
+          key={editingSeason?.id ?? "new"}
+          initial={editingSeason}
+          onCancel={() => setFormMode("closed")}
+          onSubmit={handleSubmitForm}
+        />
+      )}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-[1080px] text-left text-sm">
             <thead className="border-b border-black/5 text-xs text-neutral-500 dark:border-white/5 dark:text-neutral-400">
               <tr>
                 <th className="px-4 py-3 font-medium">이름</th>
@@ -170,63 +206,78 @@ export function SeasonsTab() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((season) => (
-                <tr
-                  key={season.id}
-                  className="border-b border-black/5 last:border-0 dark:border-white/5"
-                >
-                  <td className="px-4 py-3 font-medium text-neutral-900 dark:text-neutral-100">
-                    {season.name}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={season.type === "festival" ? "amber" : "sky"}>
-                      {TYPE_LABEL[season.type]}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={STATUS_TONE[season.status]}>
-                      {STATUS_LABEL[season.status]}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
-                    {season.year}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-                    {season.startDate} ~ {season.endDate}
-                    {season.earlyEndedAt && (
-                      <span className="ml-1 text-red-500">(조기종료)</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-                    {season.reservationStartDate} ~ {season.reservationEndDate}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
-                    {season.matchingReservationStartDate} ~{" "}
-                    {season.matchingReservationEndDate}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      {season.status === "ongoing" ? (
-                        <Button
-                          variant="danger"
-                          disabled={endingId === season.id}
-                          onClick={() => handleEndEarly(season)}
-                        >
-                          {endingId === season.id ? "처리 중..." : "조기종료"}
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="danger"
-                          disabled={deletingId === season.id}
-                          onClick={() => handleDelete(season)}
-                        >
-                          {deletingId === season.id ? "삭제 중..." : "삭제"}
-                        </Button>
+              {filtered.map((season) => {
+                const ongoing = season.status === "ongoing";
+                return (
+                  <tr
+                    key={season.id}
+                    className="border-b border-black/5 last:border-0 dark:border-white/5"
+                  >
+                    <td className="px-4 py-3 font-medium text-neutral-900 dark:text-neutral-100">
+                      {season.name}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={season.type === "festival" ? "amber" : "sky"}>
+                        {TYPE_LABEL[season.type]}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={STATUS_TONE[season.status]}>
+                        {STATUS_LABEL[season.status]}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-neutral-600 dark:text-neutral-300">
+                      {season.year}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                      {season.startDate} ~ {season.endDate}
+                      {season.earlyEndedAt && (
+                        <span className="ml-1 text-red-500">(조기종료)</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                      {season.reservationStartDate} ~ {season.reservationEndDate}
+                    </td>
+                    <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
+                      {season.matchingReservationStartDate} ~{" "}
+                      {season.matchingReservationEndDate}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="secondary"
+                          disabled={ongoing}
+                          title={
+                            ongoing
+                              ? "진행중인 시즌은 수정할 수 없습니다. 먼저 조기종료해주세요."
+                              : undefined
+                          }
+                          onClick={() => setFormMode(season)}
+                        >
+                          수정
+                        </Button>
+                        {ongoing ? (
+                          <Button
+                            variant="danger"
+                            disabled={endingId === season.id}
+                            onClick={() => handleEndEarly(season)}
+                          >
+                            {endingId === season.id ? "처리 중..." : "조기종료"}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="danger"
+                            disabled={deletingId === season.id}
+                            onClick={() => handleDelete(season)}
+                          >
+                            {deletingId === season.id ? "삭제 중..." : "삭제"}
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td
@@ -245,31 +296,42 @@ export function SeasonsTab() {
         상태는 축제 기간(시작일~종료일)에 따라 자동으로 정해집니다. /festival 예약 폼은 예약
         기간 안에서만 열립니다(축제 시작 전에 미리 받아도 됨). 진행중인 시즌을 예정보다 일찍
         끝내야 할 때만 &quot;조기종료&quot;를 누르세요 - 종료일이 오늘 날짜로 바뀌고 예약도 함께
-        닫히며 되돌릴 수 없습니다. 같은 기간에 두 축제 시즌이 겹칠 수는 없습니다. 진행중이 아닌
-        시즌은 삭제할 수 있고(그 시즌의 배치도도 함께 삭제됨), 진행중인 시즌은 먼저 조기종료해야
-        삭제할 수 있습니다.
+        닫히며 되돌릴 수 없습니다. 같은 기간에 두 축제 시즌이 겹칠 수는 없습니다. 진행중인
+        시즌은 수정·삭제할 수 없고(조기종료 후 삭제하거나, 대시보드의 강제 오픈/마감을
+        사용하세요), 그 외 시즌은 자유롭게 수정·삭제할 수 있습니다(삭제 시 그 시즌의 배치도도
+        함께 삭제됨).
       </p>
     </div>
   );
 }
 
-function AddSeasonForm({
+function SeasonForm({
+  initial,
   onCancel,
   onSubmit,
 }: {
+  initial: Season | null;
   onCancel: () => void;
   onSubmit: (season: Omit<Season, "status">) => Promise<void>;
 }) {
   const currentYear = new Date().getFullYear();
-  const [name, setName] = useState("");
-  const [type, setType] = useState<SeasonType>("festival");
-  const [year, setYear] = useState(currentYear);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [reservationStartDate, setReservationStartDate] = useState("");
-  const [reservationEndDate, setReservationEndDate] = useState("");
-  const [matchingReservationStartDate, setMatchingReservationStartDate] = useState("");
-  const [matchingReservationEndDate, setMatchingReservationEndDate] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [type, setType] = useState<SeasonType>(initial?.type ?? "festival");
+  const [year, setYear] = useState(initial?.year ?? currentYear);
+  const [startDate, setStartDate] = useState(initial?.startDate ?? "");
+  const [endDate, setEndDate] = useState(initial?.endDate ?? "");
+  const [reservationStartDate, setReservationStartDate] = useState(
+    initial?.reservationStartDate ?? "",
+  );
+  const [reservationEndDate, setReservationEndDate] = useState(
+    initial?.reservationEndDate ?? "",
+  );
+  const [matchingReservationStartDate, setMatchingReservationStartDate] = useState(
+    initial?.matchingReservationStartDate ?? "",
+  );
+  const [matchingReservationEndDate, setMatchingReservationEndDate] = useState(
+    initial?.matchingReservationEndDate ?? "",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -294,7 +356,7 @@ function AddSeasonForm({
     setSubmitting(true);
     try {
       await onSubmit({
-        id: createId("season"),
+        id: initial?.id ?? createId("season"),
         name: name.trim(),
         type,
         year,
@@ -304,10 +366,11 @@ function AddSeasonForm({
         reservationEndDate,
         matchingReservationStartDate,
         matchingReservationEndDate,
-        earlyEndedAt: null,
+        // 조기종료 여부는 이 폼에서 건드리지 않음 - 기존 값 그대로 유지(신규는 null)
+        earlyEndedAt: initial?.earlyEndedAt ?? null,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "추가에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -315,7 +378,7 @@ function AddSeasonForm({
 
   return (
     <Card className="p-4">
-      <SectionTitle>새 시즌 추가</SectionTitle>
+      <SectionTitle>{initial ? "시즌 정보 수정" : "새 시즌 추가"}</SectionTitle>
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block">
           <Label>시즌 이름</Label>
@@ -418,7 +481,7 @@ function AddSeasonForm({
           취소
         </Button>
         <Button variant="primary" disabled={!valid || submitting} onClick={submit}>
-          {submitting ? "추가 중..." : "추가"}
+          {submitting ? "저장 중..." : initial ? "수정 저장" : "추가"}
         </Button>
       </div>
     </Card>

@@ -56,13 +56,18 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const validMenus = menus.filter((m) => m.name.trim() && m.price > 0);
+  // 매칭 전용 테이블은 양 팀으로 반씩 나눠야 해서 홀수 정원이면 저장을 막음
+  const hasOddMatchingTable = tables.some(
+    (t) => t.forMatching && t.capacity > 0 && t.capacity % 2 !== 0,
+  );
   const valid =
     department.trim() &&
     name.trim() &&
     ownerName.trim() &&
     descriptionText.trim() &&
     minOrder > 0 &&
-    validMenus.length > 0;
+    validMenus.length > 0 &&
+    !hasOddMatchingTable;
 
   async function handleDescriptionImages(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -336,7 +341,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
           </Button>
         </div>
         <div className="mt-2 space-y-2">
-          {tables.map((t) => (
+          {tables.map((t) => {
+            const oddMatching = t.forMatching && t.capacity > 0 && t.capacity % 2 !== 0;
+            return (
             <div key={t.id} className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <Input
@@ -372,6 +379,15 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
                 <option value="general">일반</option>
                 <option value="matching">매칭 전용</option>
               </select>
+              {t.forMatching && t.capacity > 0 && (
+                <span
+                  className={`text-xs ${oddMatching ? "font-medium text-red-500" : "text-neutral-400 dark:text-neutral-500"}`}
+                >
+                  {oddMatching
+                    ? "짝수 인원이어야 해요"
+                    : `→ ${t.capacity / 2}인 : ${t.capacity / 2}인 매칭`}
+                </span>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -411,8 +427,14 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
                 ✕
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
+        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+          매칭 전용 테이블의 인원수는 <b className="font-medium">양 팀을 합친 정원</b>이에요.
+          예를 들어 6인으로 등록하면 3인 팀 : 3인 팀이 매칭되는 테이블이라는 뜻이라, 예약자는
+          3인으로 신청해야 이 테이블에 배정됩니다. 그래서 홀수 정원은 등록할 수 없어요.
+        </p>
         <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
           각 테이블 종류마다 정원 외에 오버부킹 3팀까지 추가로 접수받습니다(매칭 전용은
           남·여 각각 3팀). 오버부킹 예약자에게는 &quot;앞선 예약 취소 시에만 이용 가능&quot;

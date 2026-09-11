@@ -1,4 +1,5 @@
 import { AccountManager } from "../AccountManager";
+import { ContactInfoCard } from "../ContactInfoCard";
 import { ReservationSettingsCard } from "../ReservationSettingsCard";
 import { Card } from "../ui";
 
@@ -19,6 +20,8 @@ export function DashboardTab() {
         </p>
         <AccountManager title="계좌 관리" />
       </Card>
+
+      <ContactInfoCard />
     </div>
   );
 }

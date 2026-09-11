@@ -14,6 +14,7 @@ type State = {
 type Action =
   | { type: "seasons/replaceAll"; payload: Season[] }
   | { type: "seasons/add"; payload: Season }
+  | { type: "seasons/update"; payload: Season }
   | { type: "seasons/endEarly"; payload: { id: string; endDate: string } }
   | { type: "seasons/delete"; payload: { id: string } }
   | { type: "reservations/replaceAll"; payload: Reservation[] }
@@ -35,6 +36,14 @@ function reducer(state: State, action: Action): State {
 
     case "seasons/add":
       return { ...state, seasons: [action.payload, ...state.seasons] };
+
+    case "seasons/update":
+      return {
+        ...state,
+        seasons: state.seasons.map((s) =>
+          s.id === action.payload.id ? action.payload : s,
+        ),
+      };
 
     case "seasons/endEarly": {
       const seasons = state.seasons.map((s) =>

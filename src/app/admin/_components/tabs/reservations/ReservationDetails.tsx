@@ -9,6 +9,11 @@ const GENDER_LABEL: Record<"male" | "female", string> = {
   female: "여성팀",
 };
 
+const GENDER_SHORT: Record<"male" | "female", string> = {
+  male: "남",
+  female: "여",
+};
+
 /** 과팅 O/X 배지 + 펼쳐보기로 보는 주문 영수증(메뉴별 수량) 및 과팅 참석자 학과 */
 export function ReservationDetails({
   reservation,
@@ -28,7 +33,10 @@ export function ReservationDetails({
         className="flex items-center gap-1.5"
       >
         <Badge tone={reservation.matching ? "purple" : "neutral"}>
-          과팅 {reservation.matching ? "O" : "X"}
+          과팅{" "}
+          {reservation.matching
+            ? `O${reservation.matchingGender ? `(${GENDER_SHORT[reservation.matchingGender]})` : ""}`
+            : "X"}
         </Badge>
         <span className="text-xs text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400">
           {open ? "영수증 접기 ▲" : "영수증 보기 ▼"}

@@ -11,7 +11,8 @@ import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import type { Account, AdminBooth, Reservation, Season } from "./_lib/types";
 
 export const metadata: Metadata = {
-  title: "관리자 - Frequency",
+  title: "관리자",
+  robots: { index: false, follow: false },
 };
 
 function errorMessage(e: unknown, fallback: string): string {

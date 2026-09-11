@@ -1,5 +1,6 @@
 "use client";
 
+import { matchingHeadcountOptions } from "@/app/admin/_lib/slots";
 import type { FestivalBooth } from "../_lib/palette";
 import { MenuThumb } from "./MenuThumb";
 
@@ -20,6 +21,8 @@ export function BoothDetailModal({
   onClose,
   onReserve,
 }: Props) {
+  const matchingSizes = matchingHeadcountOptions(booth.tables);
+
   return (
     <div className="pointer-events-auto flex h-full flex-col">
       {/* Top gap showing festival header behind */}
@@ -36,8 +39,13 @@ export function BoothDetailModal({
         </button>
 
         <div className="flex-1 overflow-y-auto px-5 pt-6 pb-32">
-          <div className="text-xs text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
             {booth.department}
+            {matchingSizes.length > 0 && (
+              <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-600 dark:text-purple-400">
+                💘 매칭 {matchingSizes.join("·")}인 팀
+              </span>
+            )}
           </div>
           <h2 className="mt-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
             {booth.name}

@@ -1,38 +1,39 @@
+import type { Metadata, ResolvingMetadata } from "next";
 import { listBoothsLight } from "@/app/admin/_lib/firestore-booths";
-import {
-  isGeneralReservationOpen,
-  isMatchingReservationOpen,
-  listSeasons,
-} from "@/app/admin/_lib/firestore-seasons";
-import { getReservationSettings } from "@/app/admin/_lib/firestore-settings";
+import { getFestivalData } from "./_lib/active-season";
 import { FestivalClient } from "./_components/FestivalClient";
 
 // Firestore 읽기를 매 방문마다 하지 않도록 짧게 캐시 (관리자가 바꾸면 최대 이 시간만큼 늦게 반영됨)
 export const revalidate = 30;
 
+export async function generateMetadata(
+  _props: unknown,
+  parent: ResolvingMetadata,
+): Promise<Metadata> {
+  // 루트 레이아웃의 openGraph/twitter(공유 미리보기 이미지 등)를 그대로 이어받고
+  // title/description만 시즌에 맞게 덮어씀. 여기서 openGraph를 통째로 새로 만들면
+  // 루트에서 자동으로 붙는 og:image가 통째로 사라짐 (Next는 얕은 병합이라 객체째 교체됨).
+  const parentMeta = await parent;
+  const { activeSeason } = await getFestivalData();
+  const title = activeSeason ? activeSeason.name : "Frequency";
+  const description = activeSeason
+    ? `${activeSeason.name} 주점 예약 · ${activeSeason.startDate} ~ ${activeSeason.endDate}`
+    : "학교 축제 주점 예약 - Frequency";
+
+  return {
+    title,
+    description,
+    openGraph: { ...parentMeta.openGraph, title, description },
+    twitter: { ...parentMeta.twitter, title, description },
+  };
+}
+
 export default async function FestivalPage() {
   // 이미지는 여기서 미리 안 가져옴 - 주점 카드를 눌렀을 때만 그 주점 것만 불러옴
-  const [booths, seasons, settings] = await Promise.all([
+  const [booths, { activeSeason, generalOpen, matchingOpen }] = await Promise.all([
     listBoothsLight().catch(() => []),
-    listSeasons().catch(() => []),
-    getReservationSettings().catch(() => ({ general: "auto" as const, matching: "auto" as const })),
+    getFestivalData(),
   ]);
-
-  // 예약을 받는 중이거나 축제가 진행중인 축제 시즌 하나를 찾음.
-  const activeSeason =
-    seasons.find(
-      (s) =>
-        s.type === "festival" &&
-        s.status !== "ended" &&
-        (isGeneralReservationOpen(s, settings.general) || s.status === "ongoing"),
-    ) ?? null;
-
-  const generalOpen = activeSeason
-    ? isGeneralReservationOpen(activeSeason, settings.general)
-    : false;
-  const matchingOpen = activeSeason
-    ? isMatchingReservationOpen(activeSeason, settings)
-    : false;
 
   return (
     <FestivalClient

@@ -41,25 +41,29 @@ type ResolveInput = {
 /**
  * 주점의 테이블 구성 + 예약 조건으로 어느 슬롯에 들어가는지 계산.
  *
- * - 매칭: 인원수와 정확히 같은 정원의 "매칭 전용" 테이블이 있어야 함 (headcount === capacity)
+ * - 매칭: "매칭 전용" 테이블의 정원은 테이블 전체(양 팀 합) 기준으로 등록됨
+ *   (예: 6인 매칭 테이블 = 3인 팀 : 3인 팀). 그래서 한 팀의 인원수는 테이블 정원의 절반이어야
+ *   매칭됨(headcount * 2 === capacity). 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
  * - 일반: 최소 2인, 인원수를 수용하는 가장 작은 "일반" 테이블에 배치. 최대 정원 초과 시 불가.
  */
 export function resolveSlot(
   tables: TableConfig[],
   input: ResolveInput,
 ): SlotResolution {
+  if (!Number.isInteger(input.headcount) || input.headcount < 1) {
+    return { ok: false, reason: "인원수가 올바르지 않습니다." };
+  }
+
   const usable = tables.filter((t) => t.count > 0);
 
   if (input.matching) {
     if (!input.gender) return { ok: false, reason: "팀 성별을 선택해주세요." };
+    // 테이블 정원(capacity)은 양 팀 합계라 내 팀 인원수의 2배여야 그 테이블에 배정됨
     const table = usable.find(
-      (t) => t.forMatching && t.capacity === input.headcount,
+      (t) => t.forMatching && t.capacity === input.headcount * 2,
     );
     if (!table) {
-      const sizes = usable
-        .filter((t) => t.forMatching)
-        .map((t) => t.capacity)
-        .sort((a, b) => a - b);
+      const sizes = matchingHeadcountOptions(usable);
       return {
         ok: false,
         reason:
@@ -107,11 +111,17 @@ export function resolveSlot(
   };
 }
 
-/** 매칭 예약에서 고를 수 있는 인원수(= 매칭 전용 테이블 정원들). 오름차순 */
+/**
+ * 매칭 예약에서 고를 수 있는 "팀 인원수" 목록 (오름차순).
+ * 매칭 전용 테이블의 정원은 양 팀 합계라서 절반이 실제 팀 인원수 (예: 6인 테이블 → 3인 팀).
+ * 홀수 정원(반으로 못 나눔)은 잘못 등록된 것으로 보고 제외.
+ */
 export function matchingHeadcountOptions(tables: TableConfig[]): number[] {
   return Array.from(
     new Set(
-      tables.filter((t) => t.forMatching && t.count > 0).map((t) => t.capacity),
+      tables
+        .filter((t) => t.forMatching && t.count > 0 && t.capacity % 2 === 0)
+        .map((t) => t.capacity / 2),
     ),
   ).sort((a, b) => a - b);
 }

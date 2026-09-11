@@ -110,7 +110,8 @@ async function findOverlap(
   return null;
 }
 
-export async function addSeason(season: Omit<Season, "status">): Promise<void> {
+/** add/update 공용 날짜 검증. 문제 있으면 에러를 던짐 */
+function validateSeasonDates(season: Omit<Season, "id" | "status">): void {
   if (season.startDate > season.endDate) {
     throw new Error("축제 종료일이 시작일보다 빠릅니다.");
   }
@@ -129,6 +130,10 @@ export async function addSeason(season: Omit<Season, "status">): Promise<void> {
   ) {
     throw new Error("과팅 예약 기간은 전체 예약 기간 안에 있어야 합니다.");
   }
+}
+
+export async function addSeason(season: Omit<Season, "status">): Promise<void> {
+  validateSeasonDates(season);
   const overlap = await findOverlap(season.startDate, season.endDate);
   if (overlap) {
     throw new Error(
@@ -137,6 +142,34 @@ export async function addSeason(season: Omit<Season, "status">): Promise<void> {
   }
   const { id, ...rest } = season;
   await seasonsCollection().doc(id).set(rest);
+}
+
+/**
+ * 시즌 정보 수정. 진행중인 시즌은 수정할 수 없음(조기종료 또는 대시보드의
+ * 강제 오픈/마감을 대신 쓰도록 안내) - 축제 도중에 날짜가 바뀌는 걸 막기 위한 안전장치.
+ */
+export async function updateSeason(
+  id: string,
+  patch: Omit<Season, "id" | "status">,
+): Promise<void> {
+  const doc = await seasonsCollection().doc(id).get();
+  if (!doc.exists) throw new Error("시즌을 찾을 수 없습니다.");
+
+  const current = doc.data() as SeasonDocData;
+  if (computeStatus(current) === "ongoing") {
+    throw new Error(
+      "진행중인 시즌은 수정할 수 없습니다. 조기종료하거나 대시보드의 예약 접수 설정(강제 오픈/마감)을 사용해주세요.",
+    );
+  }
+
+  validateSeasonDates(patch);
+  const overlap = await findOverlap(patch.startDate, patch.endDate, id);
+  if (overlap) {
+    throw new Error(
+      `'${overlap.name}'(${overlap.startDate} ~ ${overlap.endDate})과 기간이 겹칩니다. 기간을 다시 확인해주세요.`,
+    );
+  }
+  await doc.ref.set(patch);
 }
 
 /**

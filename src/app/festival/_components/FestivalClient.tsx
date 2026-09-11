@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { BoothMap } from "./BoothMap";
 import { BoothDetailModal } from "./BoothDetailModal";
 import { ReservationModal } from "./ReservationModal";
@@ -69,20 +70,42 @@ export function FestivalClient({
   return (
     <main className="min-h-screen w-full bg-neutral-100 text-neutral-900 dark:bg-[#0b0805] dark:text-neutral-100">
       <div className="mx-auto flex w-full max-w-[440px] flex-col px-5 pt-10 pb-16">
-        <header className="text-center">
-          <div className="text-xs font-medium tracking-wide text-amber-600 dark:text-amber-400">
-            {season ? season.name : "Frequency"}
+        <header className="relative text-center">
+          <div
+            className="pointer-events-none absolute inset-x-0 -top-8 -z-10 mx-auto h-40 w-64 rounded-full bg-amber-500/25 blur-3xl dark:bg-amber-500/10"
+            aria-hidden
+          />
+
+          {season && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium ${
+                generalOpen
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : "bg-neutral-500/10 text-neutral-500 dark:text-neutral-400"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  generalOpen ? "animate-pulse bg-emerald-500" : "bg-neutral-400"
+                }`}
+              />
+              {generalOpen ? "예약 접수중" : "예약 준비중"}
+            </span>
+          )}
+
+          <div className="mt-3 text-xs font-medium tracking-[0.2em] text-amber-600 dark:text-amber-400">
+            {season ? season.name : "FREQUENCY"}
           </div>
-          <h1 className="mt-2 font-serif text-4xl font-bold italic tracking-tight text-neutral-900 dark:text-neutral-50">
+          <h1 className="mt-2 font-serif text-5xl font-bold italic tracking-tight text-neutral-900 dark:text-neutral-50">
             Frequency
           </h1>
-          <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+          <div className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400">
             축제편 주점 예약
           </div>
           {season && (
-            <div className="mt-5 flex items-center justify-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+            <div className="mt-5 inline-flex items-center gap-3 rounded-full border border-black/5 bg-white/70 px-4 py-2 text-xs text-neutral-600 shadow-sm backdrop-blur dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-300">
               <span>📍 본관 앞 운동장</span>
-              <span>·</span>
+              <span className="h-3 w-px bg-neutral-300 dark:bg-neutral-700" />
               <span>
                 🗓 {season.startDate} ~ {season.endDate}
               </span>
@@ -94,13 +117,23 @@ export function FestivalClient({
           {season ? (
             <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
           ) : (
-            <div className="rounded-2xl border border-dashed border-black/10 px-5 py-16 text-center text-sm text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-black/10 px-5 py-16 text-center text-sm text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+              <span className="text-3xl opacity-60" aria-hidden>
+                🎪
+              </span>
               지금은 진행 중인 축제가 없습니다.
               <br />
               축제 기간에 다시 찾아와주세요.
             </div>
           )}
         </div>
+
+        <Link
+          href="/festival/notice"
+          className="mt-8 flex items-center justify-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/5 py-3 text-sm font-medium text-amber-600 transition hover:bg-amber-500/10 dark:text-amber-400"
+        >
+          📋 예약 안내 확인하기
+        </Link>
       </div>
 
       {/* Detail modal */}

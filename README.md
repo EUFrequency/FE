@@ -128,3 +128,5 @@ src/
 ## 배포
 
 Vercel에 올릴 경우: 저장소를 Import하고 위의 환경변수(`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`)를 Vercel 프로젝트 설정의 Environment Variables에 그대로 넣어주면 됩니다. `FIREBASE_PRIVATE_KEY`는 줄바꿈이 포함된 값이니 그대로 붙여넣으면 됩니다.
+
+커스텀 도메인을 연결했다면 `NEXT_PUBLIC_SITE_URL`도 그 도메인(예: `https://frequency.example.com`)으로 반드시 채워주세요 - 카카오톡 등 링크 공유 미리보기(og:image)가 절대경로 URL을 만드는 데 씁니다. 비워두면 Vercel이 자동으로 주는 배포 URL로 대체됩니다.
