@@ -1,9 +1,11 @@
 import {
+  MAX_GENERAL_HEADCOUNT,
   MIN_GENERAL_HEADCOUNT,
   TABLE_OVERBOOK,
   type MatchingGender,
   type Reservation,
   type TableConfig,
+  type TableUsage,
   type TimeSlot,
 } from "./types";
 
@@ -38,83 +40,131 @@ export type SlotResolution =
     }
   | { ok: false; reason: string };
 
-type ResolveInput = {
-  matching: boolean;
-  gender: MatchingGender | null;
-  headcount: number;
-};
-
 /**
- * 주점의 테이블 구성 + 예약 조건으로 어느 슬롯에 들어가는지 계산.
+ * 매칭 예약이 어느 테이블 슬롯에 들어가는지 계산.
+ * "매칭 전용" 테이블의 정원은 테이블 전체(양 팀 합) 기준으로 등록됨
+ * (예: 6인 매칭 테이블 = 3인 팀 : 3인 팀). 그래서 한 팀의 인원수는 테이블 정원의 절반이어야
+ * 매칭됨(headcount * 2 === capacity). 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
  *
- * - 매칭: "매칭 전용" 테이블의 정원은 테이블 전체(양 팀 합) 기준으로 등록됨
- *   (예: 6인 매칭 테이블 = 3인 팀 : 3인 팀). 그래서 한 팀의 인원수는 테이블 정원의 절반이어야
- *   매칭됨(headcount * 2 === capacity). 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
- * - 일반: 최소 2인, 인원수를 수용하는 가장 작은 "일반" 테이블에 배치. 최대 정원 초과 시 불가.
+ * 일반 예약은 테이블 하나가 아니라 여러 테이블 조합으로 배정될 수 있어
+ * resolveGeneralTableCombo()를 대신 사용한다 (아래).
  */
-export function resolveSlot(
+export function resolveMatchingSlot(
   tables: TableConfig[],
-  input: ResolveInput,
+  input: { gender: MatchingGender | null; headcount: number },
 ): SlotResolution {
   if (!Number.isInteger(input.headcount) || input.headcount < 1) {
     return { ok: false, reason: "인원수가 올바르지 않습니다." };
   }
+  if (!input.gender) return { ok: false, reason: "팀 성별을 선택해주세요." };
 
   const usable = tables.filter((t) => t.count > 0);
-
-  if (input.matching) {
-    if (!input.gender) return { ok: false, reason: "팀 성별을 선택해주세요." };
-    // 테이블 정원(capacity)은 양 팀 합계라 내 팀 인원수의 2배여야 그 테이블에 배정됨
-    const table = usable.find(
-      (t) => t.forMatching && t.capacity === input.headcount * 2,
-    );
-    if (!table) {
-      const sizes = matchingHeadcountOptions(usable);
-      return {
-        ok: false,
-        reason:
-          sizes.length > 0
-            ? `이 주점의 과팅 예약은 ${sizes.join(", ")}인 팀만 가능합니다.`
-            : "이 주점은 과팅 예약을 받지 않습니다.",
-      };
-    }
-    return {
-      ok: true,
-      slotKey: matchingSlotKey(table.capacity, input.gender),
-      capacity: table.capacity,
-      tableCount: table.count,
-      limit: table.count + TABLE_OVERBOOK,
-    };
-  }
-
-  // 일반 예약
-  const generalTables = usable
-    .filter((t) => !t.forMatching)
-    .sort((a, b) => a.capacity - b.capacity);
-  if (generalTables.length === 0) {
-    return { ok: false, reason: "이 주점은 일반 예약을 받지 않습니다." };
-  }
-  if (input.headcount < MIN_GENERAL_HEADCOUNT) {
+  // 테이블 정원(capacity)은 양 팀 합계라 내 팀 인원수의 2배여야 그 테이블에 배정됨
+  const table = usable.find(
+    (t) => t.forMatching && t.capacity === input.headcount * 2,
+  );
+  if (!table) {
+    const sizes = matchingHeadcountOptions(usable);
     return {
       ok: false,
-      reason: `${MIN_GENERAL_HEADCOUNT}인부터 예약할 수 있습니다.`,
+      reason:
+        sizes.length > 0
+          ? `이 주점의 과팅 예약은 ${sizes.join(", ")}인 팀만 가능합니다.`
+          : "이 주점은 과팅 예약을 받지 않습니다.",
     };
   }
-  const maxCapacity = generalTables[generalTables.length - 1].capacity;
-  if (input.headcount > maxCapacity) {
-    return {
-      ok: false,
-      reason: `최대 ${maxCapacity}인까지 예약할 수 있습니다.`,
-    };
-  }
-  const table = generalTables.find((t) => t.capacity >= input.headcount)!;
   return {
     ok: true,
-    slotKey: generalSlotKey(table.capacity),
+    slotKey: matchingSlotKey(table.capacity, input.gender),
     capacity: table.capacity,
     tableCount: table.count,
     limit: table.count + TABLE_OVERBOOK,
   };
+}
+
+export type GeneralTableAvailability = { capacity: number; available: number };
+
+/**
+ * 일반 테이블 구성 + 지금 활성(대기+승인) 예약 수로, 정원별로 "추가로 더 쓸 수 있는
+ * 테이블 수"(오버부킹 포함)를 계산한다. 같은 정원의 테이블 행이 여러 개면 합산.
+ */
+export function generalTableAvailability(
+  tables: TableConfig[],
+  activeByCapacity: (capacity: number) => number,
+): GeneralTableAvailability[] {
+  const totalByCapacity = new Map<number, number>();
+  for (const t of tables) {
+    if (t.forMatching || t.count <= 0) continue;
+    totalByCapacity.set(t.capacity, (totalByCapacity.get(t.capacity) ?? 0) + t.count);
+  }
+  return Array.from(totalByCapacity.entries()).map(([capacity, count]) => ({
+    capacity,
+    available: Math.max(0, count + TABLE_OVERBOOK - activeByCapacity(capacity)),
+  }));
+}
+
+/**
+ * headcount를 만족하는 일반 테이블 조합을 찾는다.
+ * 우선순위: 1) 테이블 개수가 적을수록, 2) 그 안에서 남는 좌석(waste)이 적을수록.
+ * 예: 6인 테이블이 다 찼고 4인 테이블만 남았으면 자동으로 4인 테이블 2개 조합을 찾는다.
+ * 만족하는 조합이 없으면 null.
+ */
+export function resolveGeneralTableCombo(
+  availability: GeneralTableAvailability[],
+  headcount: number,
+): TableUsage[] | null {
+  const usable = availability.filter((a) => a.capacity > 0 && a.available > 0);
+  if (usable.length === 0 || headcount <= 0) return null;
+
+  const MAX_TABLES = 12;
+  for (let size = 1; size <= MAX_TABLES; size++) {
+    const found = bestGeneralComboOfSize(usable, size, headcount);
+    if (found) return found;
+  }
+  return null;
+}
+
+function bestGeneralComboOfSize(
+  usable: GeneralTableAvailability[],
+  size: number,
+  headcount: number,
+): TableUsage[] | null {
+  // best를 그냥 let으로 두면 재귀 클로저 안에서의 재할당을 TS가 못 따라가서
+  // 객체 프로퍼티로 감싸둠 (best.value 형태로 읽고 쓰기)
+  const state: { best: { counts: Map<number, number>; waste: number } | null } = {
+    best: null,
+  };
+
+  function rec(
+    startIdx: number,
+    left: number,
+    sum: number,
+    counts: Map<number, number>,
+  ) {
+    if (left === 0) {
+      if (sum >= headcount) {
+        const waste = sum - headcount;
+        if (!state.best || waste < state.best.waste) {
+          state.best = { counts: new Map(counts), waste };
+        }
+      }
+      return;
+    }
+    for (let i = startIdx; i < usable.length; i++) {
+      const { capacity, available } = usable[i];
+      const used = counts.get(capacity) ?? 0;
+      if (used >= available) continue;
+      counts.set(capacity, used + 1);
+      rec(i, left - 1, sum + capacity, counts);
+      counts.set(capacity, used);
+    }
+  }
+
+  rec(0, size, 0, new Map());
+  if (!state.best) return null;
+  return Array.from(state.best.counts.entries())
+    .filter(([, count]) => count > 0)
+    .map(([capacity, count]) => ({ capacity, count }));
 }
 
 /**
@@ -132,28 +182,37 @@ export function matchingHeadcountOptions(tables: TableConfig[]): number[] {
   ).sort((a, b) => a - b);
 }
 
-/** 일반 예약에서 허용되는 인원수 범위 [min, max]. 일반 테이블이 없으면 null */
+/**
+ * 일반 예약에서 허용되는 인원수 범위 [min, max]. 일반 테이블이 없으면 null.
+ * max는 테이블 하나의 정원이 아니라 그냥 상식적인 상한(MAX_GENERAL_HEADCOUNT) -
+ * 큰 인원은 여러 테이블 조합으로 나눠 앉히므로 특정 테이블 정원에 묶이지 않는다.
+ */
 export function generalHeadcountRange(
   tables: TableConfig[],
 ): { min: number; max: number } | null {
-  const caps = tables
-    .filter((t) => !t.forMatching && t.count > 0)
-    .map((t) => t.capacity);
-  if (caps.length === 0) return null;
-  return { min: MIN_GENERAL_HEADCOUNT, max: Math.max(...caps) };
+  const hasGeneralTable = tables.some((t) => !t.forMatching && t.count > 0);
+  if (!hasGeneralTable) return null;
+  return { min: MIN_GENERAL_HEADCOUNT, max: MAX_GENERAL_HEADCOUNT };
 }
 
-/** 예약 하나가 차지하는 슬롯 키 (매칭이면 성별 포함). 미매칭+성별없음이면 null */
-export function reservationSlotKey(r: {
+/**
+ * 예약 하나가 차지하는 슬롯들 - 매칭은 항상 1개, 일반은 여러 테이블 조합이면 여러 개일 수 있음.
+ * (구버전 문서처럼 tableAssignment가 없으면 tableCapacity 하나짜리 테이블로 간주 - 호환용)
+ */
+export function reservationSlotKeys(r: {
   matching: boolean;
   matchingGender?: MatchingGender;
   tableCapacity: number;
-}): string | null {
+  tableAssignment?: TableUsage[];
+}): { slotKey: string; count: number }[] {
   if (r.matching) {
-    if (!r.matchingGender) return null;
-    return matchingSlotKey(r.tableCapacity, r.matchingGender);
+    if (!r.matchingGender) return [];
+    return [{ slotKey: matchingSlotKey(r.tableCapacity, r.matchingGender), count: 1 }];
   }
-  return generalSlotKey(r.tableCapacity);
+  const assignment = r.tableAssignment?.length
+    ? r.tableAssignment
+    : [{ capacity: r.tableCapacity, count: 1 }];
+  return assignment.map((a) => ({ slotKey: generalSlotKey(a.capacity), count: a.count }));
 }
 
 export type SlotSummary = {
@@ -182,11 +241,11 @@ export function summarizeBoothSlots(
   const approved = new Map<string, number>();
   for (const r of reservations) {
     if (r.status === "rejected") continue;
-    const key = reservationSlotKey(r);
-    if (!key) continue;
-    active.set(key, (active.get(key) ?? 0) + 1);
-    if (r.status === "approved") {
-      approved.set(key, (approved.get(key) ?? 0) + 1);
+    for (const { slotKey, count } of reservationSlotKeys(r)) {
+      active.set(slotKey, (active.get(slotKey) ?? 0) + count);
+      if (r.status === "approved") {
+        approved.set(slotKey, (approved.get(slotKey) ?? 0) + count);
+      }
     }
   }
 

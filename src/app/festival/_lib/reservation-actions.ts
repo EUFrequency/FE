@@ -7,14 +7,17 @@ import {
   hasReservationForPhone,
   normalizePhone,
   ReservationBlockedError,
+  type CreateReservationSlot,
 } from "@/app/admin/_lib/firestore-reservations";
-import { formatTimeSlot, resolveSlot } from "@/app/admin/_lib/slots";
+import { formatTimeSlot, resolveMatchingSlot } from "@/app/admin/_lib/slots";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
-import type {
-  AdminBooth,
-  MatchingGender,
-  Reservation,
-  ReservationOrderItem,
+import {
+  MAX_GENERAL_HEADCOUNT,
+  MIN_GENERAL_HEADCOUNT,
+  type AdminBooth,
+  type MatchingGender,
+  type Reservation,
+  type ReservationOrderItem,
 } from "@/app/admin/_lib/types";
 import { getFestivalData } from "./active-season";
 import { seasonDateOptions } from "./season-dates";
@@ -22,7 +25,7 @@ import { BANKS, MATCHING_FEE_PER_PERSON } from "../data";
 
 export type SubmitReservationInput = Omit<
   Reservation,
-  "id" | "status" | "createdAt" | "assignedAlias" | "tableCapacity"
+  "id" | "status" | "createdAt" | "assignedAlias" | "tableCapacity" | "tableAssignment"
 >;
 
 export type SubmitReservationResult =
@@ -87,10 +90,14 @@ export async function submitReservationAction(
   if (!isNonEmptyText(input.accountNumber)) {
     return { ok: false, error: "계좌번호를 입력해주세요." };
   }
-  if (!isNonEmptyText(input.date, 10) || !isNonEmptyText(input.time, 5)) {
+  if (!isNonEmptyText(input.date, 10) || !isNonEmptyText(input.time)) {
     return { ok: false, error: "방문 날짜/시간을 선택해주세요." };
   }
-  if (!Number.isInteger(input.headcount) || input.headcount < 1 || input.headcount > 20) {
+  if (
+    !Number.isInteger(input.headcount) ||
+    input.headcount < 1 ||
+    input.headcount > MAX_GENERAL_HEADCOUNT
+  ) {
     return { ok: false, error: "인원수가 올바르지 않습니다." };
   }
   if (typeof input.matching !== "boolean") {
@@ -127,27 +134,49 @@ export async function submitReservationAction(
       return { ok: false, error: "축제 기간 중의 날짜를 선택해주세요." };
     }
 
-    // 3) 전화번호 중복 (트랜잭션에서도 재확인하지만 여기서 먼저 친절하게)
-    if (await hasReservationForPhone(phone)) {
+    // 3) 전화번호 중복 - 같은 날짜·시간대에만 적용 (트랜잭션에서도 재확인하지만 여기서 먼저 친절하게)
+    if (await hasReservationForPhone(phone, input.date, input.time)) {
       return {
         ok: false,
-        error: "이미 예약하신 전화번호입니다. 한 번호로는 한 건만 예약할 수 있습니다.",
+        error:
+          "이미 같은 날짜·시간대에 예약하신 전화번호입니다. 한 번호로 같은 시간대엔 한 건만 예약할 수 있습니다.",
       };
     }
 
-    // 4) 주점 확인 + 정원 슬롯 계산 (매칭이면 인원=테이블 정원 정확히 일치, 일반이면 수용 가능한
-    //    가장 작은 테이블 - 8인처럼 등록 안 된 테이블 크기는 여기서 확실히 거부됨)
+    // 4) 주점 확인 + 정원 슬롯 계산
+    //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나.
+    //    일반이면 인원수 제한 없이, 실제 테이블 배정(단일/조합)은 createReservation 트랜잭션에서
+    //    현재 정원 현황을 보고 계산한다 (여러 테이블 조합 가능 - slots.ts의 resolveGeneralTableCombo).
     const booth = await getBoothLight(input.boothId);
     if (!booth) return { ok: false, error: "주점 정보를 찾을 수 없습니다." };
     if (!booth.timeSlots.some((s) => formatTimeSlot(s) === input.time)) {
       return { ok: false, error: "선택할 수 없는 시간입니다." };
     }
-    const slot = resolveSlot(booth.tables, {
-      matching: input.matching,
-      gender: input.matching ? (input.matchingGender as MatchingGender) : null,
-      headcount: input.headcount,
-    });
-    if (!slot.ok) return { ok: false, error: slot.reason };
+
+    let slot: CreateReservationSlot;
+    if (input.matching) {
+      const resolved = resolveMatchingSlot(booth.tables, {
+        gender: (input.matchingGender as MatchingGender) ?? null,
+        headcount: input.headcount,
+      });
+      if (!resolved.ok) return { ok: false, error: resolved.reason };
+      slot = {
+        kind: "matching",
+        slotKey: resolved.slotKey,
+        capacity: resolved.capacity,
+        tableCount: resolved.tableCount,
+        limit: resolved.limit,
+      };
+    } else {
+      if (input.headcount < MIN_GENERAL_HEADCOUNT) {
+        return { ok: false, error: `${MIN_GENERAL_HEADCOUNT}인부터 예약할 수 있습니다.` };
+      }
+      const hasGeneralTable = booth.tables.some((t) => !t.forMatching && t.count > 0);
+      if (!hasGeneralTable) {
+        return { ok: false, error: "이 주점은 일반 예약을 받지 않습니다." };
+      }
+      slot = { kind: "general", tables: booth.tables };
+    }
 
     // 5) 주문 금액은 클라이언트를 안 믿고 주점의 현재 메뉴 가격으로 다시 계산
     const recomputed = recomputeOrder(booth, input.orderItems);
@@ -175,12 +204,7 @@ export async function submitReservationAction(
         matchingFee,
         totalAmount,
       },
-      {
-        slotKey: slot.slotKey,
-        capacity: slot.capacity,
-        tableCount: slot.tableCount,
-        limit: slot.limit,
-      },
+      slot,
     );
     return { ok: true, zone };
   } catch (e) {

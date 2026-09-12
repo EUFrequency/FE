@@ -45,6 +45,12 @@ export const TABLE_OVERBOOK = 3;
 /** 일반 예약이 앉을 수 있는 최소 인원 (1인 예약 불가) */
 export const MIN_GENERAL_HEADCOUNT = 2;
 
+/**
+ * 일반 예약 인원의 상한. 테이블 하나의 정원과는 무관함 - 큰 인원은 여러 테이블
+ * 조합으로 나눠 앉히므로, 이 값은 그냥 비상식적으로 큰 인원을 막기 위한 안전장치.
+ */
+export const MAX_GENERAL_HEADCOUNT = 20;
+
 export type ReservationStatus = "pending" | "approved" | "rejected";
 export type MatchingGender = "male" | "female";
 
@@ -54,6 +60,9 @@ export type ReservationOrderItem = {
   quantity: number;
 };
 
+/** 예약 하나가 실제로 차지하는 테이블 구성. 정원 slotKey는 capacity로부터 파생 */
+export type TableUsage = { capacity: number; count: number };
+
 export type Reservation = {
   id: string;
   boothId: string;
@@ -62,8 +71,17 @@ export type Reservation = {
   phone: string;
   department: string;
   headcount: number;
-  /** 이 예약이 차지한 테이블 정원 (정원 관리 슬롯 집계용). 매칭이면 headcount와 동일 */
+  /**
+   * 이 예약이 차지한 테이블 정원 합계 (참고용). 매칭이면 테이블 정원(=headcount*2)과 동일,
+   * 일반이면 tableAssignment에 있는 테이블들의 정원 합. 실제 정원 슬롯 집계는
+   * tableAssignment(일반) / matchingGender+headcount(매칭) 기준으로 함 - slots.ts 참고.
+   */
   tableCapacity: number;
+  /**
+   * 일반 예약이 실제로 배정된 테이블 조합 (예: 10인 -> 6인 테이블 1개 + 4인 테이블 1개).
+   * 매칭 예약은 항상 테이블 하나만 쓰므로 비워둠(undefined) - tableCapacity로 충분.
+   */
+  tableAssignment?: TableUsage[];
   date: string;
   time: string;
   /** 환불 등에 쓰일 대표 예약자 본인 계좌 정보 */

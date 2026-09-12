@@ -1,7 +1,7 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import type { Reservation } from "./types";
-import { reservationSlotKey } from "./slots";
+import { reservationSlotKeys } from "./slots";
 
 const COLLECTION = "boothInventory";
 const SLOTS = "slots";
@@ -37,9 +37,9 @@ export async function rebuildBoothInventory(
   const counts: Record<string, number> = {};
   for (const r of reservations) {
     if (r.boothId !== boothId || r.status === "rejected") continue;
-    const key = reservationSlotKey(r);
-    if (!key) continue;
-    counts[key] = (counts[key] ?? 0) + 1;
+    for (const { slotKey, count } of reservationSlotKeys(r)) {
+      counts[slotKey] = (counts[slotKey] ?? 0) + count;
+    }
   }
 
   const db = getAdminDb();

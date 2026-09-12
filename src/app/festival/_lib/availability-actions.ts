@@ -2,7 +2,12 @@
 
 import { getBoothLight } from "@/app/admin/_lib/firestore-booths";
 import { getSlotCounts } from "@/app/admin/_lib/firestore-inventory";
-import { resolveSlot } from "@/app/admin/_lib/slots";
+import {
+  generalSlotKey,
+  generalTableAvailability,
+  resolveGeneralTableCombo,
+  resolveMatchingSlot,
+} from "@/app/admin/_lib/slots";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import type { MatchingGender } from "@/app/admin/_lib/types";
 
@@ -35,24 +40,47 @@ export async function checkAvailabilityAction(
     if (!booth) {
       return { ok: false, status: "invalid", reason: "주점을 찾을 수 없습니다." };
     }
-    const slot = resolveSlot(booth.tables, input);
-    if (!slot.ok) {
-      return { ok: false, status: "invalid", reason: slot.reason };
-    }
+
     const counts = await getSlotCounts(boothId);
-    const active = counts[slot.slotKey] ?? 0;
-    if (active >= slot.limit) {
+
+    if (input.matching) {
+      const slot = resolveMatchingSlot(booth.tables, input);
+      if (!slot.ok) {
+        return { ok: false, status: "invalid", reason: slot.reason };
+      }
+      const active = counts[slot.slotKey] ?? 0;
+      if (active >= slot.limit) {
+        return { ok: false, status: "full", reason: "해당 인원의 예약이 마감되었습니다." };
+      }
       return {
-        ok: false,
-        status: "full",
-        reason: "해당 인원의 예약이 마감되었습니다.",
+        ok: true,
+        status: active >= slot.tableCount ? "overbook" : "available",
+        remaining: slot.limit - active,
+        capacity: slot.capacity,
       };
     }
+
+    // 일반 예약: 인원을 만족하는 테이블 조합을 찾을 수 있는지만 미리 확인 (최종 배정은 제출 시 트랜잭션에서)
+    const availability = generalTableAvailability(
+      booth.tables,
+      (cap) => counts[generalSlotKey(cap)] ?? 0,
+    );
+    const combo = resolveGeneralTableCombo(availability, input.headcount);
+    if (!combo) {
+      return { ok: false, status: "full", reason: "인원에 맞는 자리가 없습니다." };
+    }
+    const totalCapacity = combo.reduce((sum, a) => sum + a.capacity * a.count, 0);
+    const overbook = combo.some(({ capacity, count }) => {
+      const registered = booth.tables
+        .filter((t) => !t.forMatching && t.capacity === capacity)
+        .reduce((s, t) => s + t.count, 0);
+      return (counts[generalSlotKey(capacity)] ?? 0) + count > registered;
+    });
     return {
       ok: true,
-      status: active >= slot.tableCount ? "overbook" : "available",
-      remaining: slot.limit - active,
-      capacity: slot.capacity,
+      status: overbook ? "overbook" : "available",
+      remaining: totalCapacity - input.headcount,
+      capacity: totalCapacity,
     };
   } catch (e) {
     return {

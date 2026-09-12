@@ -530,7 +530,10 @@ function Step1({
             options={departments.map((d) => ({ value: d, label: d }))}
           />
         </Field>
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <p className="mt-4 text-xs text-neutral-500 dark:text-neutral-400">
+          환불하게 될 경우 환불받을 계좌를 입력해주세요.
+        </p>
+        <div className="mt-1.5 grid grid-cols-2 gap-3">
           <Field label="은행">
             <Select
               value={form.bank}
@@ -606,6 +609,15 @@ function Step1({
           {!form.matchingEnabled && generalRange && (
             <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
               {generalRange.min}~{generalRange.max}인 예약 가능
+            </p>
+          )}
+          {!form.matchingEnabled && matchingSizes.length > 0 && (
+            <p className="mt-1 text-[11px] text-purple-500 dark:text-purple-400">
+              💘 과팅 신청은{" "}
+              {matchingSizes.length === 1
+                ? `${matchingSizes[0]}인만`
+                : `${matchingSizes[0]}~${matchingSizes[matchingSizes.length - 1]}인까지`}{" "}
+              가능해요
             </p>
           )}
         </div>
