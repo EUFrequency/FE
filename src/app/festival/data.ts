@@ -40,14 +40,4 @@ export const BANKS = [
   "SC제일은행",
 ];
 
-export const FESTIVAL_TIMES = [
-  "18:00",
-  "18:30",
-  "19:00",
-  "19:30",
-  "20:00",
-  "20:30",
-  "21:00",
-];
-
 export const MATCHING_FEE_PER_PERSON = 3000;

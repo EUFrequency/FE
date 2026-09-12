@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createId } from "../../_lib/id";
 import { formatPhoneInput } from "@/lib/phone";
 import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
-import type { AdminBooth, MenuItem, TableConfig } from "../../_lib/types";
+import type { AdminBooth, MenuItem, TableConfig, TimeSlot } from "../../_lib/types";
 import { AccountManager } from "../AccountManager";
 import { Button, Input, Label, Textarea } from "../ui";
 
@@ -31,6 +31,13 @@ function defaultTables(): TableConfig[] {
   ];
 }
 
+function defaultTimeSlots(): TimeSlot[] {
+  return [
+    { id: createId("slot"), label: "1부", startTime: "11:00", endTime: "11:50" },
+    { id: createId("slot"), label: "2부", startTime: "12:00", endTime: "12:50" },
+  ];
+}
+
 export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Props) {
   const [department, setDepartment] = useState(initial?.department ?? "");
   const [name, setName] = useState(initial?.name ?? "");
@@ -49,6 +56,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const [tables, setTables] = useState<TableConfig[]>(
     initial?.tables.length ? initial.tables : defaultTables(),
   );
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>(
+    initial?.timeSlots.length ? initial.timeSlots : defaultTimeSlots(),
+  );
   const [accountId, setAccountId] = useState<string | null>(initial?.accountId ?? null);
   const [aliasPool, setAliasPool] = useState<string[]>(initialAliasPool);
   const [aliasInput, setAliasInput] = useState("");
@@ -61,6 +71,10 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const hasOddMatchingTable = tables.some(
     (t) => t.forMatching && t.capacity > 0 && t.capacity % 2 !== 0,
   );
+  const validTimeSlots = timeSlots.filter(
+    (t) => t.label.trim() && t.startTime && t.endTime,
+  );
+  const hasInvalidTimeRange = validTimeSlots.some((t) => t.endTime <= t.startTime);
   const valid =
     department.trim() &&
     name.trim() &&
@@ -68,7 +82,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
     descriptionText.trim() &&
     minOrder > 0 &&
     validMenus.length > 0 &&
-    !hasOddMatchingTable;
+    !hasOddMatchingTable &&
+    validTimeSlots.length > 0 &&
+    !hasInvalidTimeRange;
 
   async function handleDescriptionImages(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
@@ -114,6 +130,7 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
           menus: validMenus,
           minOrder: Number(minOrder),
           tables: tables.filter((t) => t.capacity > 0),
+          timeSlots: validTimeSlots,
           accountId,
           createdAt: initial?.createdAt ?? new Date().toISOString(),
         },
@@ -441,6 +458,94 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
           남·여 각각 3팀). 오버부킹 예약자에게는 &quot;앞선 예약 취소 시에만 이용 가능&quot;
           안내가 표시됩니다.
         </p>
+      </div>
+
+      {/* 시간대(부) 설정 */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between">
+          <Label hint="(예: 1부 11:00~11:50 - 예약자는 이 중 하나를 골라 예약함)">
+            시간대 설정
+          </Label>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() =>
+              setTimeSlots((prev) => [
+                ...prev,
+                { id: createId("slot"), label: "", startTime: "", endTime: "" },
+              ])
+            }
+          >
+            + 시간대 추가
+          </Button>
+        </div>
+        <div className="mt-2 space-y-2">
+          {timeSlots.map((slot) => {
+            const invalidRange =
+              slot.startTime && slot.endTime && slot.endTime <= slot.startTime;
+            return (
+              <div key={slot.id} className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={slot.label}
+                  onChange={(e) =>
+                    setTimeSlots((prev) =>
+                      prev.map((x) =>
+                        x.id === slot.id ? { ...x, label: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  placeholder="1부"
+                  className="w-20"
+                />
+                <Input
+                  type="time"
+                  value={slot.startTime}
+                  onChange={(e) =>
+                    setTimeSlots((prev) =>
+                      prev.map((x) =>
+                        x.id === slot.id ? { ...x, startTime: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  className="w-32"
+                />
+                <span className="text-sm text-neutral-400 dark:text-neutral-500">~</span>
+                <Input
+                  type="time"
+                  value={slot.endTime}
+                  onChange={(e) =>
+                    setTimeSlots((prev) =>
+                      prev.map((x) =>
+                        x.id === slot.id ? { ...x, endTime: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  className="w-32"
+                />
+                {invalidRange && (
+                  <span className="text-xs font-medium text-red-500">
+                    종료 시간이 시작 시간보다 늦어야 해요
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTimeSlots((prev) => prev.filter((x) => x.id !== slot.id))
+                  }
+                  className="ml-auto grid h-9 w-9 place-items-center rounded-lg text-neutral-400 transition hover:bg-red-500/10 hover:text-red-500"
+                  aria-label="시간대 삭제"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {validTimeSlots.length === 0 && (
+          <p className="mt-2 text-xs font-medium text-red-500">
+            시간대를 하나 이상 등록해야 예약을 받을 수 있어요.
+          </p>
+        )}
       </div>
 
       {/* 과팅 별칭 풀 */}

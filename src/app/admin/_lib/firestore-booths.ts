@@ -2,7 +2,7 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { queueRemoveBoothFromLayouts } from "./firestore-layouts";
 import { deleteBoothInventory } from "./firestore-inventory";
-import type { AdminBooth, MenuItem, TableConfig } from "./types";
+import type { AdminBooth, MenuItem, TableConfig, TimeSlot } from "./types";
 
 const BOOTHS_COLLECTION = "booths";
 const IMAGES_SUBCOLLECTION = "images";
@@ -24,6 +24,7 @@ type BoothDocData = {
   descriptionText: string;
   minOrder: number;
   tables: AdminBooth["tables"];
+  timeSlots?: TimeSlot[];
   menus: Omit<MenuItem, "image">[];
   accountId: string | null;
   createdAt: string;
@@ -39,6 +40,11 @@ function normalizeTables(tables: TableConfig[] | undefined): TableConfig[] {
   return (tables ?? []).map((t) => ({ ...t, forMatching: t.forMatching ?? false }));
 }
 
+/** timeSlots가 없던 시절 문서 호환: 없으면 빈 배열 (관리자가 새로 설정해야 함) */
+function normalizeTimeSlots(slots: TimeSlot[] | undefined): TimeSlot[] {
+  return (slots ?? []).filter((s) => s.label && s.startTime && s.endTime);
+}
+
 function toLightBooth(id: string, data: BoothDocData): AdminBooth {
   return {
     id,
@@ -51,6 +57,7 @@ function toLightBooth(id: string, data: BoothDocData): AdminBooth {
     menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
     minOrder: data.minOrder,
     tables: normalizeTables(data.tables),
+    timeSlots: normalizeTimeSlots(data.timeSlots),
     accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
@@ -92,6 +99,7 @@ async function hydrateBoothWithImages(
     })),
     minOrder: data.minOrder,
     tables: normalizeTables(data.tables),
+    timeSlots: normalizeTimeSlots(data.timeSlots),
     accountId: data.accountId ?? null,
     createdAt: data.createdAt,
   };
@@ -140,6 +148,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
     descriptionText: booth.descriptionText,
     minOrder: booth.minOrder,
     tables: booth.tables,
+    timeSlots: booth.timeSlots,
     menus: menusMeta,
     accountId: booth.accountId,
     createdAt: booth.createdAt,

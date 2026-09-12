@@ -64,8 +64,9 @@ export function ContactInfoCard() {
       </SectionTitle>
       <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
         전화번호(예: 010-1234-5678)를 넣으면 방문자가 탭해서 복사할 수 있고, 오픈채팅 등
-        http(s):// 링크를 넣으면 눌러서 바로 이동하는 버튼으로 표시돼요. 하나만 등록할 수
-        있습니다.
+        http(s):// 링크를 넣으면 눌러서 바로 이동하는 버튼으로, @로 시작하는 인스타그램
+        아이디(예: @frequency)를 넣으면 프로필로 이동하는 버튼으로 표시돼요. 하나만 등록할
+        수 있습니다.
       </p>
 
       {loadError && (
@@ -80,7 +81,7 @@ export function ContactInfoCard() {
             <Input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="010-1234-5678 또는 https://open.kakao.com/..."
+              placeholder="010-1234-5678 / https://open.kakao.com/... / @frequency"
               className="flex-1"
             />
             <Button
@@ -96,9 +97,11 @@ export function ContactInfoCard() {
             <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
               {kind === "link"
                 ? "→ 링크 버튼으로 표시됩니다."
-                : kind === "phone"
-                  ? "→ 탭하면 복사되는 전화번호로 표시됩니다."
-                  : "→ 전화번호·링크 형식이 아니라 텍스트 그대로 표시됩니다."}
+                : kind === "instagram"
+                  ? "→ 인스타그램 프로필로 이동하는 버튼으로 표시됩니다."
+                  : kind === "phone"
+                    ? "→ 탭하면 복사되는 전화번호로 표시됩니다."
+                    : "→ 전화번호·링크·인스타그램 형식이 아니라 텍스트 그대로 표시됩니다."}
             </p>
           )}
           {savedMsg && (

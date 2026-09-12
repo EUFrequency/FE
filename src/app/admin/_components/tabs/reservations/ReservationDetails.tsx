@@ -17,9 +17,15 @@ const GENDER_SHORT: Record<"male" | "female", string> = {
 /** 과팅 O/X 배지 + 펼쳐보기로 보는 주문 영수증(메뉴별 수량) 및 과팅 참석자 학과 */
 export function ReservationDetails({
   reservation,
+  pairedReservation,
+  onUnpair,
   defaultOpen = false,
 }: {
   reservation: Reservation;
+  /** 매칭 짝지어진 상대 예약 (있으면 표시) */
+  pairedReservation?: Reservation | null;
+  /** 짝 풀기 버튼을 보여주려면 전달 (없으면 버튼 자체가 안 보임) */
+  onUnpair?: () => void;
   /** 주점별 메뉴판처럼 처음부터 펼쳐서 보여주고 싶을 때 true */
   defaultOpen?: boolean;
 }) {
@@ -78,6 +84,29 @@ export function ReservationDetails({
                 <div className="mb-1 text-purple-600 dark:text-purple-400">
                   {GENDER_LABEL[reservation.matchingGender]}
                 </div>
+              )}
+              {pairedReservation ? (
+                <div className="mb-1 flex items-center justify-between gap-2 text-purple-600 dark:text-purple-400">
+                  <span>
+                    🔗 짝: {pairedReservation.representativeName} ·{" "}
+                    {pairedReservation.department}
+                  </span>
+                  {onUnpair && (
+                    <button
+                      type="button"
+                      onClick={onUnpair}
+                      className="whitespace-nowrap text-[10px] text-neutral-400 underline underline-offset-2 hover:text-red-500"
+                    >
+                      짝 풀기
+                    </button>
+                  )}
+                </div>
+              ) : (
+                reservation.status === "approved" && (
+                  <div className="mb-1 text-neutral-400 dark:text-neutral-500">
+                    짝 없이 단독 이용
+                  </div>
+                )
               )}
               {(reservation.participantDepartments ?? []).map((dept, i) => (
                 <div key={i} className="flex justify-between gap-2">

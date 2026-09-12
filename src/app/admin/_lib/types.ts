@@ -80,6 +80,11 @@ export type Reservation = {
    * 과팅 미신청이거나 풀이 비었거나 소진되면 null.
    */
   assignedAlias?: string | null;
+  /**
+   * 매칭 짝지어진 상대 예약 id. 관리자가 대기중인 반대 성별 예약과 짝지으면 양쪽에
+   * 서로의 id가 채워지고 둘 다 승인 처리됨. 상대가 거절되면 자동으로 null로 풀림.
+   */
+  pairedWith?: string | null;
   /** 주문한 메뉴 내역 (영수증 표시용) */
   orderItems: ReservationOrderItem[];
   /** 메뉴 주문 금액 (주점 매출로 집계) = orderItems 합계 */
@@ -108,6 +113,14 @@ export type TableConfig = {
   forMatching: boolean;
 };
 
+/** 주점이 운영하는 시간대(부) - 예: 1부 11:00~11:50 */
+export type TimeSlot = {
+  id: string;
+  label: string;
+  startTime: string; // "11:00"
+  endTime: string; // "11:50"
+};
+
 export type AdminBooth = {
   id: string;
   /** 이 주점을 운영하는 학과/동아리 등 (배치도·공개 페이지 표시용) */
@@ -120,6 +133,8 @@ export type AdminBooth = {
   menus: MenuItem[];
   minOrder: number;
   tables: TableConfig[];
+  /** 예약 화면에서 고를 수 있는 시간대 목록. 관리자가 주점마다 직접 설정 */
+  timeSlots: TimeSlot[];
   /**
    * 이 주점의 입금 계좌 (accounts 컬렉션 문서 id). null이면 시스템 대표 계좌를 그대로 씀.
    * 올해는 보통 다 null(모임통장 하나로 운영)이고, 내년에 주점별로 따로 관리하게 되면

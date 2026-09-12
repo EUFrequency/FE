@@ -4,7 +4,13 @@ import {
   type MatchingGender,
   type Reservation,
   type TableConfig,
+  type TimeSlot,
 } from "./types";
+
+/** 시간대를 예약 폼/내역에 보여줄 문자열로 - 예: "1부 11:00~11:50" */
+export function formatTimeSlot(slot: TimeSlot): string {
+  return `${slot.label} ${slot.startTime}~${slot.endTime}`;
+}
 
 /**
  * 정원 관리 슬롯 = (테이블 정원, 용도[, 성별]) 조합.
@@ -212,4 +218,56 @@ export function summarizeBoothSlots(
       a.capacity - b.capacity ||
       (a.gender ?? "").localeCompare(b.gender ?? ""),
   );
+}
+
+export type MatchingTableLeftover = {
+  tableId: string;
+  capacity: number;
+  /** 등록된 매칭 전용 테이블 개수 */
+  count: number;
+  /** 실제로 차 있는 테이블 수 (짝지어진 쌍은 1개, 짝 없이 혼자 승인된 예약도 1개) */
+  occupied: number;
+  /** 일반으로 전환해도 되는 남는 테이블 수 */
+  leftover: number;
+  /** 아직 승인/거절하지 않은 매칭 예약 수 - 남아있으면 전환을 미뤄야 함 */
+  pendingCount: number;
+};
+
+/**
+ * 매칭 전용 테이블 종류별로 "실제로 몇 개가 차 있는지"를 계산해 남는(leftover) 테이블 수를 구함.
+ * 짝지어진 두 예약(pairedWith)은 테이블 하나를 같이 쓰므로 1개로, 짝 없이 혼자 승인된
+ * 매칭 예약도 테이블 하나를 혼자 쓰므로 1개로 센다. 대기중인 예약이 남아있으면
+ * (아직 승인/거절을 안 끝냈으면) 잘못된 전환을 막기 위해 pendingCount로 표시만 하고
+ * occupied 계산에는 넣지 않는다 - 호출하는 쪽에서 pendingCount > 0이면 전환을 막아야 함.
+ */
+export function computeMatchingTableLeftover(
+  tables: TableConfig[],
+  reservations: Reservation[],
+): MatchingTableLeftover[] {
+  return tables
+    .filter((t) => t.forMatching && t.count > 0)
+    .map((t) => {
+      const atCapacity = reservations.filter(
+        (r) => r.matching && r.tableCapacity === t.capacity,
+      );
+      const pendingCount = atCapacity.filter((r) => r.status === "pending").length;
+
+      const counted = new Set<string>();
+      let occupied = 0;
+      for (const r of atCapacity) {
+        if (r.status !== "approved" || counted.has(r.id)) continue;
+        occupied += 1;
+        counted.add(r.id);
+        if (r.pairedWith) counted.add(r.pairedWith);
+      }
+
+      return {
+        tableId: t.id,
+        capacity: t.capacity,
+        count: t.count,
+        occupied,
+        leftover: Math.max(0, t.count - occupied),
+        pendingCount,
+      };
+    });
 }

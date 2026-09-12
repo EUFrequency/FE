@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
+import { unpairReservationAction } from "../../../_lib/reservation-actions";
 import type { ReservationStatus } from "../../../_lib/types";
 import { Card, EmptyState, Label, Select } from "../../ui";
 import { ReservationDetails } from "./ReservationDetails";
@@ -14,9 +15,27 @@ const STATUS_TABS: { key: ProcessedStatus; label: string }[] = [
 ];
 
 export function ProcessedPanel() {
-  const { state } = useAdminStore();
+  const { state, dispatch } = useAdminStore();
   const [status, setStatus] = useState<ProcessedStatus>("approved");
   const [boothFilter, setBoothFilter] = useState<string>("all");
+  const [unpairError, setUnpairError] = useState<string | null>(null);
+
+  const reservationsById = useMemo(
+    () => new Map(state.reservations.map((r) => [r.id, r])),
+    [state.reservations],
+  );
+
+  async function handleUnpair(id: string) {
+    if (!confirm("이 예약의 매칭 짝을 풀까요? (승인 상태는 유지됩니다)")) return;
+    setUnpairError(null);
+    try {
+      const result = await unpairReservationAction(id);
+      if (!result.ok) throw new Error(result.error);
+      dispatch({ type: "reservations/unpair", payload: { id } });
+    } catch (e) {
+      setUnpairError(e instanceof Error ? e.message : "짝 풀기에 실패했습니다.");
+    }
+  }
 
   const byStatus = useMemo(
     () => state.reservations.filter((r) => r.status === status),
@@ -80,6 +99,12 @@ export function ProcessedPanel() {
         {STATUS_TABS.find((t) => t.key === status)?.label} {filtered.length}건
       </span>
 
+      {unpairError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
+          {unpairError}
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <EmptyState>
           {status === "approved" ? "확정된 예약이 없습니다." : "반려된 예약이 없습니다."}
@@ -121,7 +146,15 @@ export function ProcessedPanel() {
                       {r.headcount}명
                     </td>
                     <td className="px-4 py-3">
-                      <ReservationDetails reservation={r} />
+                      <ReservationDetails
+                        reservation={r}
+                        pairedReservation={
+                          r.pairedWith ? (reservationsById.get(r.pairedWith) ?? null) : null
+                        }
+                        onUnpair={
+                          r.pairedWith ? () => handleUnpair(r.id) : undefined
+                        }
+                      />
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-400">
                       {r.totalAmount.toLocaleString()}원

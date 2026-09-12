@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { detectContactKind } from "../_lib/contact";
+import { detectContactKind, instagramProfileUrl } from "../_lib/contact";
 
 /**
  * 문의 연락처 한 줄 표시.
@@ -20,6 +20,19 @@ export function ContactDisplay({ value }: { value: string }) {
         className="font-semibold underline underline-offset-2"
       >
         문의 : 오픈채팅으로 문의하기 ↗
+      </a>
+    );
+  }
+
+  if (kind === "instagram") {
+    return (
+      <a
+        href={instagramProfileUrl(value)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-semibold underline underline-offset-2"
+      >
+        문의 : 인스타그램으로 문의하기 ↗
       </a>
     );
   }

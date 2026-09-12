@@ -8,7 +8,7 @@ import {
   normalizePhone,
   ReservationBlockedError,
 } from "@/app/admin/_lib/firestore-reservations";
-import { resolveSlot } from "@/app/admin/_lib/slots";
+import { formatTimeSlot, resolveSlot } from "@/app/admin/_lib/slots";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import type {
   AdminBooth,
@@ -18,7 +18,7 @@ import type {
 } from "@/app/admin/_lib/types";
 import { getFestivalData } from "./active-season";
 import { seasonDateOptions } from "./season-dates";
-import { BANKS, FESTIVAL_TIMES, MATCHING_FEE_PER_PERSON } from "../data";
+import { BANKS, MATCHING_FEE_PER_PERSON } from "../data";
 
 export type SubmitReservationInput = Omit<
   Reservation,
@@ -90,9 +90,6 @@ export async function submitReservationAction(
   if (!isNonEmptyText(input.date, 10) || !isNonEmptyText(input.time, 5)) {
     return { ok: false, error: "방문 날짜/시간을 선택해주세요." };
   }
-  if (!FESTIVAL_TIMES.includes(input.time)) {
-    return { ok: false, error: "선택할 수 없는 시간입니다." };
-  }
   if (!Number.isInteger(input.headcount) || input.headcount < 1 || input.headcount > 20) {
     return { ok: false, error: "인원수가 올바르지 않습니다." };
   }
@@ -142,6 +139,9 @@ export async function submitReservationAction(
     //    가장 작은 테이블 - 8인처럼 등록 안 된 테이블 크기는 여기서 확실히 거부됨)
     const booth = await getBoothLight(input.boothId);
     if (!booth) return { ok: false, error: "주점 정보를 찾을 수 없습니다." };
+    if (!booth.timeSlots.some((s) => formatTimeSlot(s) === input.time)) {
+      return { ok: false, error: "선택할 수 없는 시간입니다." };
+    }
     const slot = resolveSlot(booth.tables, {
       matching: input.matching,
       gender: input.matching ? (input.matchingGender as MatchingGender) : null,

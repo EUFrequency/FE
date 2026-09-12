@@ -39,6 +39,7 @@ function toReservation(doc: FirebaseFirestore.QueryDocumentSnapshot): Reservatio
     ...data,
     tableCapacity: data.tableCapacity ?? data.headcount ?? 0,
     assignedAlias: data.assignedAlias ?? null,
+    pairedWith: data.pairedWith ?? null,
     createdAt: toIso(data.createdAt),
   };
 }
@@ -73,6 +74,13 @@ export async function setReservationStatus(
     const data = resSnap.data() as Partial<Reservation>;
     if (data.status === "rejected") return;
 
+    // 짝지어진 매칭 상대가 있으면 - 이 예약이 거절돼도 상대는 그대로 승인 상태를 유지하되
+    // (혼자 이용 가능), 더 이상 짝이 없으니 pairedWith만 풀어줌
+    const partnerRef = data.pairedWith
+      ? reservationsCollection().doc(data.pairedWith)
+      : null;
+    const partnerSnap = partnerRef ? await tx.get(partnerRef) : null;
+
     const alias = data.assignedAlias ?? null;
     const boothId = data.boothId;
     const key =
@@ -103,7 +111,10 @@ export async function setReservationStatus(
       }
     }
 
-    tx.update(resRef, { status: "rejected", assignedAlias: null });
+    tx.update(resRef, { status: "rejected", assignedAlias: null, pairedWith: null });
+    if (partnerRef && partnerSnap?.exists) {
+      tx.update(partnerRef, { pairedWith: null });
+    }
     if (sRef && active !== null) {
       tx.set(sRef, { active: Math.max(0, active - 1) }, { merge: true });
     }
@@ -111,6 +122,67 @@ export async function setReservationStatus(
     if (poolRef && assigned) {
       tx.update(poolRef, { assigned: assigned.filter((a) => a !== alias) });
     }
+  });
+}
+
+export class PairReservationsError extends Error {}
+
+/**
+ * 대기중인 매칭 예약 둘을 짝지어 하나의 테이블로 묶고 동시에 승인한다.
+ * (같은 주점/날짜/시간대/인원수 + 서로 반대 성별이어야 하며, 둘 다 아직 대기중이어야 함 -
+ *  이 조건은 호출하는 쪽(관리자 화면)에서 이미 걸러서 후보를 보여주지만, 여기서도 다시
+ *  한번 확인해 동시에 다른 관리자가 같은 예약을 처리하는 경쟁 상황을 막는다.)
+ */
+export async function pairReservations(idA: string, idB: string): Promise<void> {
+  if (idA === idB) throw new PairReservationsError("같은 예약을 짝지을 수 없습니다.");
+  const db = getAdminDb();
+  await db.runTransaction(async (tx) => {
+    const refA = reservationsCollection().doc(idA);
+    const refB = reservationsCollection().doc(idB);
+    const [snapA, snapB] = await Promise.all([tx.get(refA), tx.get(refB)]);
+    if (!snapA.exists || !snapB.exists) {
+      throw new PairReservationsError("예약 정보를 찾을 수 없습니다.");
+    }
+    const a = snapA.data() as Partial<Reservation>;
+    const b = snapB.data() as Partial<Reservation>;
+
+    const bothPending = a.status === "pending" && b.status === "pending";
+    const bothMatching = !!a.matching && !!b.matching;
+    const sameSlot =
+      a.boothId === b.boothId &&
+      a.date === b.date &&
+      a.time === b.time &&
+      a.headcount === b.headcount;
+    const oppositeGender =
+      !!a.matchingGender && !!b.matchingGender && a.matchingGender !== b.matchingGender;
+    const neitherPaired = !a.pairedWith && !b.pairedWith;
+
+    if (!bothPending || !bothMatching || !sameSlot || !oppositeGender || !neitherPaired) {
+      throw new PairReservationsError(
+        "두 예약의 조건(주점/날짜/시간대/인원수/성별/처리 상태)이 맞지 않습니다.",
+      );
+    }
+
+    tx.update(refA, { status: "approved", pairedWith: idB });
+    tx.update(refB, { status: "approved", pairedWith: idA });
+  });
+}
+
+/** 실수로 짝지은 걸 되돌림 - 승인 상태는 그대로 두고 pairedWith만 서로 풀어줌 */
+export async function unpairReservation(id: string): Promise<void> {
+  const db = getAdminDb();
+  await db.runTransaction(async (tx) => {
+    const ref = reservationsCollection().doc(id);
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() as Partial<Reservation>;
+    if (!data.pairedWith) return;
+
+    const partnerRef = reservationsCollection().doc(data.pairedWith);
+    const partnerSnap = await tx.get(partnerRef);
+
+    tx.update(ref, { pairedWith: null });
+    if (partnerSnap.exists) tx.update(partnerRef, { pairedWith: null });
   });
 }
 
@@ -192,8 +264,13 @@ export async function createReservation(
     }
 
     // --- 쓰기 ---
+    // matchingGender/participantDepartments처럼 과팅 미신청 시 undefined로 넘어오는 값은
+    // Firestore가 문서 필드로 허용하지 않으므로 제거하고 씀 (키 자체를 안 넣음)
+    const cleanInput = Object.fromEntries(
+      Object.entries(input).filter(([, v]) => v !== undefined),
+    );
     tx.set(reservationRef, {
-      ...input,
+      ...cleanInput,
       tableCapacity: slot.capacity,
       assignedAlias,
       status: "pending",

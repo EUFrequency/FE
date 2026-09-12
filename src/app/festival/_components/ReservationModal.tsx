@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BANKS, FESTIVAL_TIMES, MATCHING_FEE_PER_PERSON } from "../data";
+import { BANKS, MATCHING_FEE_PER_PERSON } from "../data";
 import type { FestivalBooth } from "../_lib/palette";
 import { seasonDateOptions } from "../_lib/season-dates";
 import { submitReservationAction } from "../_lib/reservation-actions";
@@ -9,6 +9,7 @@ import { checkAvailabilityAction } from "../_lib/availability-actions";
 import { MenuThumb } from "./MenuThumb";
 import { formatPhoneInput } from "@/lib/phone";
 import {
+  formatTimeSlot,
   generalHeadcountRange,
   matchingHeadcountOptions,
 } from "@/app/admin/_lib/slots";
@@ -494,10 +495,18 @@ function Step1({
               value={form.time}
               onChange={(v) => setField("time", v)}
               placeholder="선택"
-              options={FESTIVAL_TIMES.map((t) => ({ value: t, label: t }))}
+              options={booth.timeSlots.map((slot) => {
+                const label = formatTimeSlot(slot);
+                return { value: label, label };
+              })}
             />
           </Field>
         </div>
+        {booth.timeSlots.length === 0 && (
+          <p className="mt-2 text-xs font-medium text-red-500">
+            아직 예약 가능한 시간대가 등록되지 않았습니다.
+          </p>
+        )}
         <Field label="대표 예약자 이름" className="mt-4">
           <Input
             value={form.name}
