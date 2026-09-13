@@ -39,6 +39,10 @@ export function FestivalClient({
   const [paymentAccount, setPaymentAccount] = useState<Account | null>(null);
   const [loadingBoothId, setLoadingBoothId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [submitInfo, setSubmitInfo] = useState<{
+    zone: "normal" | "overbook";
+    waitingNumber: number | null;
+  } | null>(null);
 
   const openDetail = async (booth: FestivalBooth, index: number) => {
     setSelectedName(booth.name);
@@ -66,6 +70,7 @@ export function FestivalClient({
     setPaymentAccount(null);
     setSelectedName(null);
     setLoadError(null);
+    setSubmitInfo(null);
   };
 
   const loading = loadingBoothId !== null;
@@ -175,14 +180,23 @@ export function FestivalClient({
             matchingOpen={matchingOpen}
             departments={departments}
             onClose={closeAll}
-            onSubmit={() => setFlow("success")}
+            onSubmit={(info) => {
+              setSubmitInfo(info);
+              setFlow("success");
+            }}
           />
         )}
       </Modal>
 
       {/* Success dialog (over the map) */}
       {flow === "success" && selectedName && (
-        <SuccessDialog boothName={selectedName} onClose={closeAll} />
+        <SuccessDialog
+          boothName={selectedName}
+          zone={submitInfo?.zone ?? "normal"}
+          waitingNumber={submitInfo?.waitingNumber ?? null}
+          reservationEndDate={season?.reservationEndDate ?? null}
+          onClose={closeAll}
+        />
       )}
     </main>
   );

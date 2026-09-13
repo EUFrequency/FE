@@ -4,27 +4,24 @@ import { useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
 import {
   approveReservationAction,
-  pairReservationsAction,
   rejectReservationAction,
 } from "../../../_lib/reservation-actions";
+import { buildApprovalMessage, buildRejectionMessage } from "../../../_lib/messages";
 import type { Reservation } from "../../../_lib/types";
 import { Button, Card, EmptyState } from "../../ui";
+import { Modal } from "../../Modal";
 import { CapacityGauge } from "./CapacityGauge";
 import { ReservationDetails } from "./ReservationDetails";
 
-/** 두 매칭 팀의 학과 목록이 하나라도 겹치는지 (기록이 없으면 대표자 학과로 대신 비교) */
-function overlappingDepartments(a: Reservation, b: Reservation): string[] {
-  const deptsA = a.participantDepartments?.length ? a.participantDepartments : [a.department];
-  const deptsB = b.participantDepartments?.length ? b.participantDepartments : [b.department];
-  const setB = new Set(deptsB);
-  return Array.from(new Set(deptsA.filter((d) => setB.has(d))));
-}
+type PendingAction =
+  | { type: "approve"; reservation: Reservation }
+  | { type: "reject"; reservation: Reservation };
 
 export function PendingPanel() {
   const { state, dispatch, reservationsError } = useAdminStore();
-  const [processingId, setProcessingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
-  const [pairingForId, setPairingForId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const pending = useMemo(
     () =>
@@ -34,70 +31,41 @@ export function PendingPanel() {
     [state.reservations],
   );
 
-  async function handleApprove(id: string) {
-    setRowError(null);
-    setProcessingId(id);
-    try {
-      const result = await approveReservationAction(id);
-      if (!result.ok) throw new Error(result.error);
-      dispatch({ type: "reservations/approve", payload: { id } });
-    } catch (e) {
-      setRowError(e instanceof Error ? e.message : "승인에 실패했습니다.");
-    } finally {
-      setProcessingId(null);
-    }
+  function requestApprove(r: Reservation) {
+    setActionError(null);
+    setPendingAction({ type: "approve", reservation: r });
   }
 
-  async function handleReject(id: string) {
-    setRowError(null);
-    setProcessingId(id);
-    try {
-      const result = await rejectReservationAction(id);
-      if (!result.ok) throw new Error(result.error);
-      dispatch({ type: "reservations/reject", payload: { id } });
-    } catch (e) {
-      setRowError(e instanceof Error ? e.message : "반려에 실패했습니다.");
-    } finally {
-      setProcessingId(null);
-    }
+  function requestReject(r: Reservation) {
+    setActionError(null);
+    setPendingAction({ type: "reject", reservation: r });
   }
 
-  function matchingCandidatesFor(r: Reservation): Reservation[] {
-    return state.reservations.filter(
-      (c) =>
-        c.id !== r.id &&
-        c.status === "pending" &&
-        c.matching &&
-        c.boothId === r.boothId &&
-        c.date === r.date &&
-        c.time === r.time &&
-        c.headcount === r.headcount &&
-        c.matchingGender &&
-        r.matchingGender &&
-        c.matchingGender !== r.matchingGender,
-    );
-  }
-
-  async function handlePair(r: Reservation, candidate: Reservation) {
-    const overlap = overlappingDepartments(r, candidate);
-    if (overlap.length > 0) {
-      const proceed = confirm(
-        `두 팀 모두 ${overlap.join(", ")} 소속이 있습니다. 그래도 짝지을까요?`,
-      );
-      if (!proceed) return;
-    }
-
-    setRowError(null);
-    setProcessingId(r.id);
+  async function confirmPendingAction() {
+    if (!pendingAction) return;
+    setActionBusy(true);
+    setActionError(null);
     try {
-      const result = await pairReservationsAction(r.id, candidate.id);
-      if (!result.ok) throw new Error(result.error);
-      dispatch({ type: "reservations/pair", payload: { idA: r.id, idB: candidate.id } });
-      setPairingForId(null);
+      if (pendingAction.type === "approve") {
+        const result = await approveReservationAction(pendingAction.reservation.id);
+        if (!result.ok) throw new Error(result.error);
+        dispatch({
+          type: "reservations/approve",
+          payload: { id: pendingAction.reservation.id },
+        });
+      } else {
+        const result = await rejectReservationAction(pendingAction.reservation.id);
+        if (!result.ok) throw new Error(result.error);
+        dispatch({
+          type: "reservations/reject",
+          payload: { id: pendingAction.reservation.id },
+        });
+      }
+      setPendingAction(null);
     } catch (e) {
-      setRowError(e instanceof Error ? e.message : "짝짓기에 실패했습니다.");
+      setActionError(e instanceof Error ? e.message : "처리에 실패했습니다.");
     } finally {
-      setProcessingId(null);
+      setActionBusy(false);
     }
   }
 
@@ -115,11 +83,6 @@ export function PendingPanel() {
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
           <div className="font-semibold">Firebase 연동이 아직 설정되지 않았습니다.</div>
           <div className="mt-1 text-xs leading-5 opacity-90">{reservationsError}</div>
-        </div>
-      )}
-      {rowError && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
-          {rowError}
         </div>
       )}
 
@@ -156,122 +119,124 @@ export function PendingPanel() {
                 </dd>
               </dl>
 
-              {r.matching && pairingForId === r.id && (
-                <MatchingCandidates
-                  reservation={r}
-                  candidates={matchingCandidatesFor(r)}
-                  busy={processingId === r.id}
-                  onPick={(candidate) => handlePair(r, candidate)}
-                  onClose={() => setPairingForId(null)}
-                />
-              )}
-
               <div className="mt-4 flex justify-end gap-2">
-                <Button
-                  variant="danger"
-                  disabled={processingId === r.id}
-                  onClick={() => handleReject(r.id)}
-                >
+                <Button variant="danger" onClick={() => requestReject(r)}>
                   반려
                 </Button>
-                {r.matching && (
-                  <Button
-                    variant="secondary"
-                    disabled={processingId === r.id}
-                    onClick={() =>
-                      setPairingForId((prev) => (prev === r.id ? null : r.id))
-                    }
-                  >
-                    {pairingForId === r.id ? "짝 찾기 닫기" : "짝 찾기"}
-                  </Button>
-                )}
-                <Button
-                  variant="primary"
-                  disabled={processingId === r.id}
-                  onClick={() => handleApprove(r.id)}
-                >
-                  {processingId === r.id
-                    ? "처리 중..."
-                    : r.matching
-                      ? "상대 없이 승인"
-                      : "입금 확인 · 승인"}
+                <Button variant="primary" onClick={() => requestApprove(r)}>
+                  입금 확인 · 승인
                 </Button>
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      <Modal open={pendingAction !== null} onClose={() => !actionBusy && setPendingAction(null)}>
+        {pendingAction && (
+          <PendingActionModal
+            action={pendingAction}
+            busy={actionBusy}
+            error={actionError}
+            onConfirm={confirmPendingAction}
+            onCancel={() => setPendingAction(null)}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
 
-const GENDER_LABEL: Record<string, string> = { male: "남성팀", female: "여성팀" };
+function actionModalTitle(action: PendingAction): string {
+  return action.type === "approve" ? "예약 확정 안내 보내기" : "반려 안내 보내기";
+}
 
-function MatchingCandidates({
-  reservation,
-  candidates,
+function confirmButtonLabel(action: PendingAction): string {
+  return action.type === "approve" ? "승인 처리" : "반려 처리";
+}
+
+function messagesFor(action: PendingAction): { label: string; text: string }[] {
+  const text =
+    action.type === "approve"
+      ? buildApprovalMessage(action.reservation)
+      : buildRejectionMessage(action.reservation);
+  return [{ label: action.reservation.representativeName, text }];
+}
+
+function PendingActionModal({
+  action,
   busy,
-  onPick,
-  onClose,
+  error,
+  onConfirm,
+  onCancel,
 }: {
-  reservation: Reservation;
-  candidates: Reservation[];
+  action: PendingAction;
   busy: boolean;
-  onPick: (candidate: Reservation) => void;
-  onClose: () => void;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
+  const messages = messagesFor(action);
   return (
-    <div className="mt-3 rounded-xl border border-purple-400/30 bg-purple-500/[0.05] p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">
-          짝지을 상대 팀 ({GENDER_LABEL[reservation.matchingGender ?? ""] ?? ""} 상대)
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-        >
-          닫기
-        </button>
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        {actionModalTitle(action)}
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        아래 메시지를 복사해서 카카오톡으로 먼저 보내주세요. &quot;{confirmButtonLabel(action)}&quot;을
+        눌러야 실제로 상태가 바뀝니다.
+      </p>
+
+      <div className="mt-4 space-y-3">
+        {messages.map((m, i) => (
+          <CopyableMessage key={i} label={m.label} text={m.text} />
+        ))}
       </div>
-      {candidates.length === 0 ? (
-        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-          같은 주점·날짜·시간대·인원수에 대기중인 반대 성별 팀이 없습니다.
-        </p>
-      ) : (
-        <div className="mt-2 space-y-1.5">
-          {candidates.map((c) => {
-            const overlap = overlappingDepartments(reservation, c);
-            return (
-              <div
-                key={c.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-black/5 bg-white px-3 py-2 text-xs dark:border-white/5 dark:bg-white/[0.03]"
-              >
-                <div>
-                  <span className="font-medium text-neutral-900 dark:text-neutral-100">
-                    {c.representativeName}
-                  </span>
-                  <span className="ml-1.5 text-neutral-500 dark:text-neutral-400">
-                    {c.department} · {c.headcount}명
-                  </span>
-                  {overlap.length > 0 && (
-                    <span className="ml-1.5 text-amber-600 dark:text-amber-400">
-                      ⚠ 학과 겹침 ({overlap.join(", ")})
-                    </span>
-                  )}
-                </div>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => onPick(c)}
-                >
-                  이 팀과 묶기
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          취소
+        </Button>
+        <Button variant="primary" onClick={onConfirm} disabled={busy}>
+          {busy ? "처리 중..." : confirmButtonLabel(action)}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function CopyableMessage({ label, text }: { label: string; text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 클립보드 접근이 막힌 환경이면 조용히 무시 (텍스트는 이미 화면에 보임)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-black/10 p-3 dark:border-white/10">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-200">
+          {label}님께 보낼 메시지
+        </span>
+        <Button variant="secondary" onClick={copy}>
+          {copied ? "복사됨" : "복사"}
+        </Button>
+      </div>
+      <textarea
+        readOnly
+        value={text}
+        rows={4}
+        onFocus={(e) => e.currentTarget.select()}
+        className="mt-2 w-full resize-none rounded-lg border border-black/10 bg-neutral-50 p-2 text-xs leading-5 text-neutral-700 outline-none dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-200"
+      />
     </div>
   );
 }

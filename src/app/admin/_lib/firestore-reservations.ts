@@ -1,9 +1,16 @@
 import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
-import type { Reservation, ReservationStatus, TableConfig, TableUsage } from "./types";
+import {
+  MIN_GENERAL_HEADCOUNT,
+  type Reservation,
+  type ReservationStatus,
+  type TableConfig,
+  type TableUsage,
+} from "./types";
 import { slotRef } from "./firestore-inventory";
 import {
+  canApproveReservation,
   generalSlotKey,
   generalTableAvailability,
   reservationSlotKeys,
@@ -11,8 +18,11 @@ import {
 } from "./slots";
 
 const COLLECTION = "reservations";
+const BOOTHS_COLLECTION = "booths";
 const ALIASES_COLLECTION = "boothAliases";
 const PHONES_COLLECTION = "reservationPhones";
+
+export class ApprovalBlockedError extends Error {}
 
 function reservationsCollection() {
   return getAdminDb().collection(COLLECTION);
@@ -73,8 +83,41 @@ export async function setReservationStatus(
   id: string,
   status: Extract<ReservationStatus, "approved" | "rejected">,
 ): Promise<void> {
-  if (status !== "rejected") {
-    await reservationsCollection().doc(id).update({ status });
+  if (status === "approved") {
+    // 승인(확정): 오버부킹은 접수까지만 허용되는 버퍼라, 실제 확정은 물리적 테이블 수를
+    // 절대 넘을 수 없음 - 이미 그만큼 확정돼 있으면 앞선 확정 예약이 취소돼야 승인 가능.
+    const db = getAdminDb();
+    await db.runTransaction(async (tx) => {
+      const resRef = reservationsCollection().doc(id);
+      const resSnap = await tx.get(resRef);
+      if (!resSnap.exists) throw new ApprovalBlockedError("예약 정보를 찾을 수 없습니다.");
+
+      const data = resSnap.data() as Partial<Reservation>;
+      if (data.status === "approved") return;
+      if (data.status === "rejected") {
+        throw new ApprovalBlockedError("이미 반려된 예약은 승인할 수 없습니다.");
+      }
+      if (!data.boothId) throw new ApprovalBlockedError("주점 정보가 없는 예약입니다.");
+
+      const boothRef = getAdminDb().collection(BOOTHS_COLLECTION).doc(data.boothId);
+      const [boothSnap, reservationsSnap] = await Promise.all([
+        tx.get(boothRef),
+        tx.get(reservationsCollection().where("boothId", "==", data.boothId)),
+      ]);
+      const tables = (boothSnap.data()?.tables as TableConfig[] | undefined) ?? [];
+      const allReservations = reservationsSnap.docs.map((d) => toReservation(d));
+
+      const check = canApproveReservation(tables, allReservations, {
+        id,
+        matching: !!data.matching,
+        matchingGender: data.matchingGender,
+        tableCapacity: data.tableCapacity ?? 0,
+        tableAssignment: data.tableAssignment,
+      });
+      if (!check.ok) throw new ApprovalBlockedError(check.reason);
+
+      tx.update(resRef, { status: "approved" });
+    });
     return;
   }
 
@@ -150,10 +193,10 @@ export async function setReservationStatus(
 export class PairReservationsError extends Error {}
 
 /**
- * 대기중인 매칭 예약 둘을 짝지어 하나의 테이블로 묶고 동시에 승인한다.
- * (같은 주점/날짜/시간대/인원수 + 서로 반대 성별이어야 하며, 둘 다 아직 대기중이어야 함 -
- *  이 조건은 호출하는 쪽(관리자 화면)에서 이미 걸러서 후보를 보여주지만, 여기서도 다시
- *  한번 확인해 동시에 다른 관리자가 같은 예약을 처리하는 경쟁 상황을 막는다.)
+ * 이미 각자 승인(확정)된 매칭 예약 둘을 짝으로 묶는다 (관리자 페이지의 "매칭 관리" 탭에서 사용).
+ * 승인은 성별별 정원(canApproveReservation)만으로 이미 끝난 상태라, 여기서는 상태를 바꾸지
+ * 않고 서로의 id만 pairedWith에 기록한다 - 같은 주점/날짜/시간대/인원수 + 서로 반대 성별
+ * + 둘 다 승인 상태 + 둘 다 아직 짝이 없어야 함.
  */
 export async function pairReservations(idA: string, idB: string): Promise<void> {
   if (idA === idB) throw new PairReservationsError("같은 예약을 짝지을 수 없습니다.");
@@ -168,7 +211,7 @@ export async function pairReservations(idA: string, idB: string): Promise<void> 
     const a = snapA.data() as Partial<Reservation>;
     const b = snapB.data() as Partial<Reservation>;
 
-    const bothPending = a.status === "pending" && b.status === "pending";
+    const bothApproved = a.status === "approved" && b.status === "approved";
     const bothMatching = !!a.matching && !!b.matching;
     const sameSlot =
       a.boothId === b.boothId &&
@@ -179,14 +222,14 @@ export async function pairReservations(idA: string, idB: string): Promise<void> 
       !!a.matchingGender && !!b.matchingGender && a.matchingGender !== b.matchingGender;
     const neitherPaired = !a.pairedWith && !b.pairedWith;
 
-    if (!bothPending || !bothMatching || !sameSlot || !oppositeGender || !neitherPaired) {
+    if (!bothApproved || !bothMatching || !sameSlot || !oppositeGender || !neitherPaired) {
       throw new PairReservationsError(
-        "두 예약의 조건(주점/날짜/시간대/인원수/성별/처리 상태)이 맞지 않습니다.",
+        "두 예약의 조건(주점/날짜/시간대/인원수/성별/승인 상태)이 맞지 않습니다.",
       );
     }
 
-    tx.update(refA, { status: "approved", pairedWith: idB });
-    tx.update(refB, { status: "approved", pairedWith: idA });
+    tx.update(refA, { pairedWith: idB });
+    tx.update(refB, { pairedWith: idA });
   });
 }
 
@@ -206,6 +249,73 @@ export async function unpairReservation(id: string): Promise<void> {
     tx.update(ref, { pairedWith: null });
     if (partnerSnap.exists) tx.update(partnerRef, { pairedWith: null });
   });
+}
+
+/**
+ * 확정(승인)된 매칭 예약 하나를 취소하고, 그 자리에 일반 예약을 새로 접수한다
+ * (관리자 페이지 "매칭 관리" 탭에서 사용) - 예: 3인 매칭 팀이 매칭이 성사되지 않아
+ * 그냥 자기들끼리 이용하기로 한 경우, 또는 이미 짝지어진 3:3 팀이 하나의 일반
+ * 예약(최대 6인)으로 합쳐서 이용하기로 한 경우.
+ *
+ * newHeadcount는 이 예약의 팀 인원수(n)의 최대 2배(n*2)까지만 허용 - 짝지어진 상대까지
+ * 합친 인원(짝지어진 두 팀은 항상 인원수가 같으므로 n+n=n*2)을 넘을 수 없다.
+ * 짝이 있었다면 상대 예약도 함께 취소한다(같은 사람들이 새 일반 예약으로 흡수되므로).
+ *
+ * 새 일반 예약은 기존 예약의 대표자/연락처/학과/계좌/주문 내역을 그대로 물려받고,
+ * 실제 테이블 배정은 createReservation의 조합 탐색 로직에 맡긴다(예: 6인 테이블이 다
+ * 찼으면 4인 테이블 여유가 있는지 확인 후 자동으로 옮겨감) - 상태는 항상 새로 접수된
+ * "대기"부터 시작해 관리자가 다시 승인해야 함(물리 정원을 넘겨 확정되는 일이 없도록).
+ */
+export async function convertMatchingToGeneral(
+  reservationId: string,
+  newHeadcount: number,
+): Promise<{ zone: "normal" | "overbook"; assignedAlias: string | null; waitingNumber: number | null }> {
+  const resRef = reservationsCollection().doc(reservationId);
+  const snap = await resRef.get();
+  if (!snap.exists) throw new Error("예약 정보를 찾을 수 없습니다.");
+  const data = snap.data() as Reservation;
+
+  if (!data.matching) throw new Error("매칭 예약이 아닙니다.");
+  if (data.status !== "approved") {
+    throw new Error("확정된 매칭 예약만 일반 예약으로 전환할 수 있습니다.");
+  }
+  const maxHeadcount = data.headcount * 2;
+  if (
+    !Number.isInteger(newHeadcount) ||
+    newHeadcount < MIN_GENERAL_HEADCOUNT ||
+    newHeadcount > maxHeadcount
+  ) {
+    throw new Error(`인원수는 ${MIN_GENERAL_HEADCOUNT}명 이상 ${maxHeadcount}명 이하로 입력해주세요.`);
+  }
+
+  const boothSnap = await getAdminDb().collection(BOOTHS_COLLECTION).doc(data.boothId).get();
+  const tables = (boothSnap.data()?.tables as TableConfig[] | undefined) ?? [];
+
+  await setReservationStatus(reservationId, "rejected");
+  if (data.pairedWith) {
+    await setReservationStatus(data.pairedWith, "rejected");
+  }
+
+  return createReservation(
+    {
+      boothId: data.boothId,
+      boothName: data.boothName,
+      representativeName: data.representativeName,
+      phone: data.phone,
+      department: data.department,
+      headcount: newHeadcount,
+      date: data.date,
+      time: data.time,
+      bank: data.bank,
+      accountNumber: data.accountNumber,
+      matching: false,
+      orderItems: data.orderItems,
+      menuAmount: data.menuAmount,
+      matchingFee: 0,
+      totalAmount: data.menuAmount,
+    },
+    { kind: "general", tables },
+  );
 }
 
 /** 매칭은 미리 정해진 테이블 하나, 일반은 여러 테이블 조합일 수 있어 테이블 목록 자체를 넘김 */
@@ -232,7 +342,8 @@ export class ReservationBlockedError extends Error {
  *  3) 과팅이면 주점 별칭 풀에서 겹치지 않는 별칭 배정
  * status는 항상 "pending"으로 시작.
  *
- * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 + 배정된 별칭
+ * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 + 배정된 별칭 +
+ *          오버부킹이면 대기 번째 수 (1부터 시작, 정원을 넘긴 뒤 몇 번째로 접수됐는지)
  */
 export async function createReservation(
   input: Omit<
@@ -240,7 +351,11 @@ export async function createReservation(
     "id" | "status" | "createdAt" | "assignedAlias" | "tableCapacity" | "tableAssignment"
   >,
   slot: CreateReservationSlot,
-): Promise<{ zone: "normal" | "overbook"; assignedAlias: string | null }> {
+): Promise<{
+  zone: "normal" | "overbook";
+  assignedAlias: string | null;
+  waitingNumber: number | null;
+}> {
   const db = getAdminDb();
   const reservationRef = reservationsCollection().doc();
   const pRef = phoneMarkerRef(input.phone, input.date, input.time);
@@ -259,6 +374,7 @@ export async function createReservation(
     let tableCapacity: number;
     let tableAssignment: TableUsage[];
     let zone: "normal" | "overbook";
+    let waitingNumber: number | null = null;
     const slotWrites: { ref: FirebaseFirestore.DocumentReference; active: number }[] = [];
 
     if (slot.kind === "matching") {
@@ -269,6 +385,7 @@ export async function createReservation(
         throw new ReservationBlockedError("해당 인원의 예약이 마감되었습니다.", "full");
       }
       zone = active >= slot.tableCount ? "overbook" : "normal";
+      if (zone === "overbook") waitingNumber = active - slot.tableCount + 1;
       tableCapacity = slot.capacity;
       tableAssignment = [{ capacity: slot.capacity, count: 1 }];
       slotWrites.push({ ref: sRef, active: active + 1 });
@@ -303,15 +420,21 @@ export async function createReservation(
       tableAssignment = combo;
       tableCapacity = combo.reduce((sum, a) => sum + a.capacity * a.count, 0);
       zone = "normal";
+      let maxOverbookDepth = 0;
       for (const { capacity, count } of combo) {
         const before = activeByCapacity.get(capacity) ?? 0;
         const registeredCount = tableCountByCapacity.get(capacity) ?? 0;
-        if (before + count > registeredCount) zone = "overbook";
+        const depth = before + count - registeredCount;
+        if (depth > 0) {
+          zone = "overbook";
+          maxOverbookDepth = Math.max(maxOverbookDepth, depth);
+        }
         slotWrites.push({
           ref: slotRef(input.boothId, generalSlotKey(capacity)),
           active: before + count,
         });
       }
+      if (zone === "overbook") waitingNumber = maxOverbookDepth;
     }
 
     let assignedAlias: string | null = null;
@@ -356,6 +479,6 @@ export async function createReservation(
     });
     if (poolAssigned) tx.update(poolRef, { assigned: poolAssigned });
 
-    return { zone, assignedAlias };
+    return { zone, assignedAlias, waitingNumber };
   });
 }

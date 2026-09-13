@@ -2,10 +2,31 @@
 
 type Props = {
   boothName: string;
+  /** available = 정원 내 확정 예약, overbook = 대기(오버부킹) 예약 */
+  zone: "normal" | "overbook";
+  /** overbook일 때 몇 번째 대기인지 (1부터 시작). normal이면 null */
+  waitingNumber: number | null;
+  /** 전체 예약 마감일 (YYYY-MM-DD) - 대기 예약 안내 문구에 씀. 없으면 그 문장은 생략 */
+  reservationEndDate: string | null;
   onClose: () => void;
 };
 
-export function SuccessDialog({ boothName, onClose }: Props) {
+function formatDateKorean(date: string): string | null {
+  const [y, m, d] = date.split("-");
+  if (!y || !m || !d) return null;
+  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+}
+
+export function SuccessDialog({
+  boothName,
+  zone,
+  waitingNumber,
+  reservationEndDate,
+  onClose,
+}: Props) {
+  const overbooked = zone === "overbook";
+  const deadline = reservationEndDate ? formatDateKorean(reservationEndDate) : null;
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center px-6"
@@ -28,20 +49,48 @@ export function SuccessDialog({ boothName, onClose }: Props) {
           </svg>
         </div>
         <h3 className="mt-4 text-lg font-bold text-neutral-900 dark:text-neutral-50">
-          예약이 접수되었습니다!
+          {overbooked ? "대기 예약으로 접수되었습니다" : "예약이 접수되었습니다!"}
         </h3>
         <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">
           <span className="font-semibold">{boothName}</span> 예약이
           접수되었습니다.
         </p>
+
+        {overbooked && waitingNumber && (
+          <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-semibold text-amber-700 dark:text-amber-400">
+            현재 자리가 가득 차 대기 {waitingNumber}번으로 접수됐어요
+          </p>
+        )}
+
         <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-400">
-          입금 확인 후 예약이 확정됩니다.
-          <br />
-          과팅 매칭 성공 여부 및 취소·이용 안내는{" "}
-          <span className="font-semibold text-amber-600 dark:text-amber-400">
-            카카오톡
-          </span>
-          으로 개별 안내해 드립니다.
+          {overbooked ? (
+            <>
+              앞선 예약이 취소되는 경우에만 이용하실 수 있어요.
+              {deadline && (
+                <>
+                  {" "}
+                  예약 마감일({deadline})까지 취소 고객이 나오지 않으면 이용이
+                  제한될 수 있습니다.
+                </>
+              )}
+              <br />
+              확정 여부는{" "}
+              <span className="font-semibold text-amber-600 dark:text-amber-400">
+                카카오톡
+              </span>
+              으로 개별 안내해 드립니다.
+            </>
+          ) : (
+            <>
+              입금 확인 후 예약이 확정됩니다.
+              <br />
+              과팅 매칭 성공 여부 및 취소·이용 안내는{" "}
+              <span className="font-semibold text-amber-600 dark:text-amber-400">
+                카카오톡
+              </span>
+              으로 개별 안내해 드립니다.
+            </>
+          )}
         </p>
         <button
           type="button"

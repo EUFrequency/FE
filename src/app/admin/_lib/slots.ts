@@ -294,10 +294,15 @@ export type MatchingTableLeftover = {
 
 /**
  * 매칭 전용 테이블 종류별로 "실제로 몇 개가 차 있는지"를 계산해 남는(leftover) 테이블 수를 구함.
- * 짝지어진 두 예약(pairedWith)은 테이블 하나를 같이 쓰므로 1개로, 짝 없이 혼자 승인된
- * 매칭 예약도 테이블 하나를 혼자 쓰므로 1개로 센다. 대기중인 예약이 남아있으면
- * (아직 승인/거절을 안 끝냈으면) 잘못된 전환을 막기 위해 pendingCount로 표시만 하고
- * occupied 계산에는 넣지 않는다 - 호출하는 쪽에서 pendingCount > 0이면 전환을 막아야 함.
+ *
+ * 승인은 이제 성별별로 독립된 정원이라(짝짓기와 무관), 승인된 예약 중 아직 짝이 없는
+ * 남/여는 "앞으로 서로 짝지어질 수 있다"고 낙관적으로 가정해 max(짝없는 남, 짝없는 여)만큼만
+ * 테이블을 쓴다고 본다. 이미 짝지어진 쌍은 테이블 하나를 같이 쓰므로 1개로 센다.
+ * (예: 짝없는 남 2 + 짝없는 여 1이면 최선의 경우 1쌍 + 혼자 1명 = 테이블 2개로 충분)
+ *
+ * 대기중인 예약이 남아있으면(아직 승인/거절을 안 끝냈으면) 잘못된 전환을 막기 위해
+ * pendingCount로 표시만 하고 occupied 계산에는 넣지 않는다 - 호출하는 쪽에서
+ * pendingCount > 0이면 전환을 막아야 함.
  */
 export function computeMatchingTableLeftover(
   tables: TableConfig[],
@@ -310,15 +315,24 @@ export function computeMatchingTableLeftover(
         (r) => r.matching && r.tableCapacity === t.capacity,
       );
       const pendingCount = atCapacity.filter((r) => r.status === "pending").length;
+      const approved = atCapacity.filter((r) => r.status === "approved");
+      const approvedIds = new Set(approved.map((r) => r.id));
 
       const counted = new Set<string>();
-      let occupied = 0;
-      for (const r of atCapacity) {
-        if (r.status !== "approved" || counted.has(r.id)) continue;
-        occupied += 1;
+      let pairedTables = 0;
+      for (const r of approved) {
+        if (counted.has(r.id) || !r.pairedWith || !approvedIds.has(r.pairedWith)) continue;
+        pairedTables += 1;
         counted.add(r.id);
-        if (r.pairedWith) counted.add(r.pairedWith);
+        counted.add(r.pairedWith);
       }
+      const soloMale = approved.filter(
+        (r) => !counted.has(r.id) && r.matchingGender === "male",
+      ).length;
+      const soloFemale = approved.filter(
+        (r) => !counted.has(r.id) && r.matchingGender === "female",
+      ).length;
+      const occupied = pairedTables + Math.max(soloMale, soloFemale);
 
       return {
         tableId: t.id,
@@ -329,4 +343,81 @@ export function computeMatchingTableLeftover(
         pendingCount,
       };
     });
+}
+
+/**
+ * 이 예약을 승인(확정)해도 되는지 확인.
+ *
+ * 오버부킹은 "접수(대기)"까지만 허용되는 버퍼다 - 실수로 예약 버튼을 누른 경우 등을 대비해
+ * 대기 명단은 정원보다 몇 건 더 받아두지만, 실제로 승인(확정)하는 순간부터는 진짜 좌석이
+ * 배정되는 것이므로 물리적으로 등록된 테이블 수를 절대 넘을 수 없다. 이미 확정된 예약이
+ * 테이블 수만큼 차 있으면, 남은 대기 예약은 앞선 확정 예약이 취소돼야만 승인할 수 있다.
+ *
+ * 매칭은 짝짓기 여부와 무관하게 성별별로 독립된 정원으로 취급한다 - 예를 들어 4인 매칭
+ * 테이블 2개면, 남성팀도 최대 2팀·여성팀도 최대 2팀까지 각자 승인할 수 있다(짝은 승인
+ * 이후에 관리자가 매칭 관리 탭에서 별도로 지정함 - firestore-reservations.ts의
+ * pairReservations 참고).
+ */
+export function canApproveReservation(
+  tables: TableConfig[],
+  reservations: Reservation[],
+  target: Pick<
+    Reservation,
+    "id" | "matching" | "matchingGender" | "tableCapacity" | "tableAssignment"
+  >,
+): { ok: true } | { ok: false; reason: string } {
+  if (target.matching) {
+    const table = tables.find((t) => t.forMatching && t.capacity === target.tableCapacity);
+    if (!table) return { ok: false, reason: "테이블 정보를 찾을 수 없습니다." };
+    const approvedCount = reservations.filter(
+      (r) =>
+        r.id !== target.id &&
+        r.status === "approved" &&
+        r.matching &&
+        r.matchingGender === target.matchingGender &&
+        r.tableCapacity === target.tableCapacity,
+    ).length;
+    if (approvedCount + 1 > table.count) {
+      return {
+        ok: false,
+        reason: `${target.tableCapacity}인 매칭 테이블이 이미 모두 확정되어 지금은 승인할 수 없습니다. 앞선 확정 예약이 취소되면 승인해주세요.`,
+      };
+    }
+    return { ok: true };
+  }
+
+  // 일반: tableAssignment의 각 정원별로, 이미 확정(승인)된 다른 예약들의 사용량 + 이 예약의
+  // 사용량이 등록된 물리 테이블 수(오버부킹 제외)를 넘는지 확인
+  const assignment = target.tableAssignment?.length
+    ? target.tableAssignment
+    : [{ capacity: target.tableCapacity, count: 1 }];
+
+  const registeredByCapacity = new Map<number, number>();
+  for (const t of tables) {
+    if (t.forMatching || t.count <= 0) continue;
+    registeredByCapacity.set(t.capacity, (registeredByCapacity.get(t.capacity) ?? 0) + t.count);
+  }
+
+  const approvedByCapacity = new Map<number, number>();
+  for (const r of reservations) {
+    if (r.status !== "approved" || r.matching || r.id === target.id) continue;
+    const usage = r.tableAssignment?.length
+      ? r.tableAssignment
+      : [{ capacity: r.tableCapacity, count: 1 }];
+    for (const u of usage) {
+      approvedByCapacity.set(u.capacity, (approvedByCapacity.get(u.capacity) ?? 0) + u.count);
+    }
+  }
+
+  for (const u of assignment) {
+    const already = approvedByCapacity.get(u.capacity) ?? 0;
+    const registered = registeredByCapacity.get(u.capacity) ?? 0;
+    if (already + u.count > registered) {
+      return {
+        ok: false,
+        reason: `${u.capacity}인 테이블이 이미 모두 확정되어 지금은 승인할 수 없습니다. 앞선 확정 예약이 취소되면 승인해주세요.`,
+      };
+    }
+  }
+  return { ok: true };
 }

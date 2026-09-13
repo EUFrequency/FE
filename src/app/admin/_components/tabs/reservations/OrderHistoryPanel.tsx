@@ -15,6 +15,7 @@ const HEADERS = [
   "과팅여부",
   "인원수",
   "배정된 별칭",
+  "매칭 상대",
 ] as const;
 
 type DataRow = {
@@ -30,6 +31,8 @@ type DataRow = {
   matching: string;
   headcount: string;
   alias: string;
+  /** 짝지어진 상대 표시 (없으면 "") */
+  pairedLabel: string;
 };
 type SpacerRow = { kind: "spacer"; key: string };
 type Row = DataRow | SpacerRow;
@@ -45,10 +48,11 @@ function matchingLabel(r: Reservation): string {
 }
 
 /** 확정(승인)된 예약을 접수 순서대로, 메뉴 한 줄씩 펼쳐서 표로 만든다. 주문끼리는 빈 행으로 구분 */
-function buildRows(reservations: Reservation[]): Row[] {
+function buildRows(reservations: Reservation[], byId: Map<string, Reservation>): Row[] {
   const rows: Row[] = [];
   reservations.forEach((r, ri) => {
     const items = r.orderItems.length > 0 ? r.orderItems : [null];
+    const partner = r.pairedWith ? byId.get(r.pairedWith) : undefined;
     items.forEach((item, ii) => {
       const first = ii === 0;
       rows.push({
@@ -63,6 +67,7 @@ function buildRows(reservations: Reservation[]): Row[] {
         matching: first ? matchingLabel(r) : "",
         headcount: first ? `${r.headcount}명` : "",
         alias: first ? (r.assignedAlias ?? "-") : "",
+        pairedLabel: first && partner ? `🔗 ${partner.representativeName}` : "",
       });
     });
     if (ri < reservations.length - 1) rows.push({ kind: "spacer", key: `sp-${r.id}` });
@@ -92,6 +97,7 @@ function rowsToCsv(rows: Row[]): string {
         row.matching,
         row.headcount,
         row.alias === "-" ? "" : row.alias,
+        row.pairedLabel,
       ]
         .map(csvField)
         .join(","),
@@ -136,7 +142,11 @@ export function OrderHistoryPanel() {
     [approved, boothFilter],
   );
 
-  const rows = useMemo(() => buildRows(ordered), [ordered]);
+  const byId = useMemo(
+    () => new Map(state.reservations.map((r) => [r.id, r])),
+    [state.reservations],
+  );
+  const rows = useMemo(() => buildRows(ordered, byId), [ordered, byId]);
 
   function handleExport() {
     const boothLabel =
@@ -184,7 +194,7 @@ export function OrderHistoryPanel() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
+            <table className="w-full min-w-[960px] text-left text-sm">
               <thead className="border-b border-black/5 text-xs text-neutral-500 dark:border-white/5 dark:text-neutral-400">
                 <tr>
                   <th className="px-4 py-3 font-medium">순번</th>
@@ -196,6 +206,7 @@ export function OrderHistoryPanel() {
                   <th className="px-4 py-3 font-medium">과팅여부</th>
                   <th className="px-4 py-3 font-medium">인원수(N인 테이블)</th>
                   <th className="px-4 py-3 font-medium">배정된 별칭</th>
+                  <th className="px-4 py-3 font-medium">매칭 상대</th>
                 </tr>
               </thead>
               <tbody>
@@ -206,7 +217,7 @@ export function OrderHistoryPanel() {
                       aria-hidden
                       className="border-b border-black/5 last:border-0 dark:border-white/5"
                     >
-                      {Array.from({ length: 9 }).map((_, i) => (
+                      {Array.from({ length: 10 }).map((_, i) => (
                         <td key={i} className="px-4 py-2.5">
                           &nbsp;
                         </td>
@@ -250,6 +261,11 @@ export function OrderHistoryPanel() {
                           <span className="text-neutral-400 dark:text-neutral-500">-</span>
                         ) : (
                           <Badge tone="amber">{row.alias}</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {row.pairedLabel === "" ? null : (
+                          <Badge tone="sky">{row.pairedLabel}</Badge>
                         )}
                       </td>
                     </tr>

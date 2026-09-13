@@ -7,12 +7,14 @@ import { listReservationsAction } from "../../_lib/reservation-actions";
 import { Button } from "../ui";
 import { PendingPanel } from "./reservations/PendingPanel";
 import { ProcessedPanel } from "./reservations/ProcessedPanel";
+import { MatchingTab } from "./reservations/MatchingTab";
 import { OrderHistoryPanel } from "./reservations/OrderHistoryPanel";
 import { SettlementPanel } from "./reservations/SettlementPanel";
 
 const SUB_TABS = [
   { key: "pending", label: "대기" },
   { key: "processed", label: "처리완료" },
+  { key: "matching", label: "매칭 관리" },
   { key: "orders", label: "주문 내역" },
   { key: "settlement", label: "결산" },
 ] as const;
@@ -76,6 +78,7 @@ export function ReservationsTab() {
 
       {sub === "pending" && <PendingPanel />}
       {sub === "processed" && <ProcessedPanel />}
+      {sub === "matching" && <MatchingTab />}
       {sub === "orders" && <OrderHistoryPanel />}
       {sub === "settlement" && <SettlementPanel />}
     </div>

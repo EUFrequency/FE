@@ -5,7 +5,7 @@ import { useAdminStore } from "../../../_lib/store";
 import { rebuildInventoryAction } from "../../../_lib/reservation-actions";
 import { convertMatchingTableAction } from "../../../_lib/booth-actions";
 import { computeMatchingTableLeftover, summarizeBoothSlots } from "../../../_lib/slots";
-import { Button, Card } from "../../ui";
+import { Badge, Button, Card } from "../../ui";
 
 const GENDER_LABEL = { male: "남", female: "여" } as const;
 
@@ -16,25 +16,17 @@ export function CapacityGauge() {
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
 
-  const perBooth = useMemo(() => {
+  const rows = useMemo(() => {
     return state.booths
       .map((booth) => {
         const rs = state.reservations.filter((r) => r.boothId === booth.id);
-        return { booth, slots: summarizeBoothSlots(booth.tables, rs) };
-      })
-      .filter((b) => b.slots.length > 0);
-  }, [state.booths, state.reservations]);
-
-  const leftoverByBooth = useMemo(() => {
-    return state.booths
-      .map((booth) => {
-        const rs = state.reservations.filter((r) => r.boothId === booth.id);
+        const slots = summarizeBoothSlots(booth.tables, rs);
         const leftovers = computeMatchingTableLeftover(booth.tables, rs).filter(
           (l) => l.leftover > 0 || l.pendingCount > 0,
         );
-        return { booth, leftovers };
+        return { booth, slots, leftovers };
       })
-      .filter((b) => b.leftovers.length > 0);
+      .filter((b) => b.slots.length > 0);
   }, [state.booths, state.reservations]);
 
   async function handleRebuild() {
@@ -69,115 +61,168 @@ export function CapacityGauge() {
     }
   }
 
-  if (perBooth.length === 0) return null;
+  if (rows.length === 0) return null;
 
   return (
     <Card className="p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          정원 현황
-        </h2>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            정원 현황
+          </h2>
+          <p className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+            배치도처럼 테이블 하나하나를 칸으로 보여줘요
+          </p>
+        </div>
         <Button variant="secondary" onClick={handleRebuild} disabled={rebuilding}>
           {rebuilding ? "계산 중..." : "재고 재계산"}
         </Button>
       </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+        <LegendSwatch className="border-emerald-500/40 bg-emerald-500/15" label="확정" />
+        <LegendSwatch className="border-amber-500/40 bg-amber-500/15" label="대기(배정 가능)" />
+        <LegendSwatch
+          className="border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
+          label="빈자리"
+        />
+        <LegendSwatch
+          className="border-dashed border-red-400/50 bg-red-500/5"
+          label="추가 대기(오버부킹)"
+        />
+      </div>
+
       {msg && (
         <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{msg}</p>
       )}
-      <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-        확정 / 정원 (접수: 대기 포함 · 오버부킹 상한). 확정이 정원에 닿으면 승인을 멈추세요.
-      </p>
+      {convertError && <p className="mt-2 text-xs text-red-500">{convertError}</p>}
 
-      <div className="mt-3 space-y-3">
-        {perBooth.map(({ booth, slots }) => (
-          <div key={booth.id}>
-            <div className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-              {booth.name}
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {slots.map((s) => {
-                const full = s.approved >= s.tableCount;
-                const over = s.active > s.tableCount;
-                return (
-                  <span
-                    key={s.slotKey}
-                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] ${
-                      full
-                        ? "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
-                        : "border-black/10 text-neutral-600 dark:border-white/10 dark:text-neutral-300"
-                    }`}
-                  >
-                    <span className="font-medium">
-                      {s.capacity}인
-                      {s.forMatching
-                        ? ` 매칭·${s.gender ? GENDER_LABEL[s.gender] : ""}`
-                        : " 일반"}
-                    </span>
-                    <span className="tabular-nums">
-                      {s.approved}/{s.tableCount}
-                    </span>
-                    <span className="text-neutral-400 dark:text-neutral-500">
-                      (접수 {s.active}
-                      {over ? ` · 오버 ${s.active - s.tableCount}` : ""} / 상한{" "}
-                      {s.limit})
-                    </span>
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+      <div className="mt-3 space-y-2">
+        {rows.map(({ booth, slots, leftovers }) => {
+          const fullCount = slots.filter((s) => s.approved >= s.tableCount).length;
+          return (
+            <div
+              key={booth.id}
+              className="rounded-xl border border-black/5 p-3 dark:border-white/5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+                  {booth.name}
+                </span>
+                {fullCount > 0 && (
+                  <Badge tone="red">
+                    {fullCount}/{slots.length}종 마감
+                  </Badge>
+                )}
+              </div>
 
-      {leftoverByBooth.length > 0 && (
-        <div className="mt-4 border-t border-black/5 pt-3 dark:border-white/5">
-          <h3 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-            매칭 전용 테이블 전환
-          </h3>
-          <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-            과팅 예약을 다 처리(승인/반려)한 뒤, 짝을 못 찾아 남는 매칭 테이블을 일반
-            테이블로 바꿀 수 있어요.
-          </p>
-          {convertError && (
-            <p className="mt-2 text-xs text-red-500">{convertError}</p>
-          )}
-          <div className="mt-2 space-y-1.5">
-            {leftoverByBooth.map(({ booth, leftovers }) =>
-              leftovers.map((l) => (
-                <div
-                  key={`${booth.id}-${l.tableId}`}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 px-3 py-2 text-xs dark:border-white/10"
-                >
-                  <span className="text-neutral-600 dark:text-neutral-300">
-                    <span className="font-medium text-neutral-900 dark:text-neutral-100">
-                      {booth.name}
-                    </span>{" "}
-                    · {l.capacity}인 매칭 테이블 {l.occupied}/{l.count} 사용중
-                    {l.pendingCount > 0 && (
-                      <span className="ml-1.5 text-amber-600 dark:text-amber-400">
-                        (대기중 {l.pendingCount}건 - 먼저 처리해주세요)
-                      </span>
-                    )}
-                  </span>
-                  {l.pendingCount === 0 && l.leftover > 0 && (
-                    <Button
-                      variant="secondary"
-                      disabled={convertingId === l.tableId}
-                      onClick={() =>
-                        handleConvert(booth.id, l.tableId, l.capacity, l.leftover)
-                      }
+              <div className="mt-2.5 space-y-3">
+                {slots.map((s) => {
+                  const boxes: TableBox[] = [];
+                  for (let i = 0; i < s.tableCount; i++) {
+                    if (i < s.approved) boxes.push({ key: `c${i}`, kind: "confirmed" });
+                    else if (i < s.active) boxes.push({ key: `p${i}`, kind: "pending" });
+                    else boxes.push({ key: `e${i}`, kind: "empty" });
+                  }
+                  const overbookCount = Math.max(0, s.active - s.tableCount);
+                  for (let i = 0; i < overbookCount; i++) {
+                    boxes.push({ key: `w${i}`, kind: "waiting", num: i + 1 });
+                  }
+
+                  return (
+                    <div key={s.slotKey}>
+                      <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {s.capacity}인{" "}
+                        {s.forMatching ? `매칭·${s.gender ? GENDER_LABEL[s.gender] : ""}` : "일반"}{" "}
+                        <span className="text-neutral-400 dark:text-neutral-500">
+                          (확정 {s.approved}/{s.tableCount})
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {boxes.map((b) => (
+                          <TableBoxCell key={b.key} box={b} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {leftovers.length > 0 && (
+                <div className="mt-2.5 space-y-1.5 border-t border-dashed border-black/10 pt-2.5 dark:border-white/10">
+                  {leftovers.map((l) => (
+                    <div
+                      key={l.tableId}
+                      className="flex flex-wrap items-center justify-between gap-2 text-[11px]"
                     >
-                      {convertingId === l.tableId
-                        ? "전환 중..."
-                        : `남는 ${l.leftover}개 일반으로 전환`}
-                    </Button>
-                  )}
+                      <span className="text-neutral-500 dark:text-neutral-400">
+                        💘 {l.capacity}인 매칭 테이블 {l.occupied}/{l.count} 사용중
+                        {l.pendingCount > 0 && (
+                          <span className="ml-1 text-amber-600 dark:text-amber-400">
+                            (대기 {l.pendingCount}건 먼저 처리)
+                          </span>
+                        )}
+                      </span>
+                      {l.pendingCount === 0 && l.leftover > 0 && (
+                        <Button
+                          variant="secondary"
+                          disabled={convertingId === l.tableId}
+                          onClick={() => handleConvert(booth.id, l.tableId, l.capacity, l.leftover)}
+                        >
+                          {convertingId === l.tableId
+                            ? "전환 중..."
+                            : `남는 ${l.leftover}개 일반으로 전환`}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              )),
-            )}
-          </div>
-        </div>
-      )}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </Card>
+  );
+}
+
+type TableBox =
+  | { key: string; kind: "confirmed" | "pending" | "empty" }
+  | { key: string; kind: "waiting"; num: number };
+
+/** 배치도 칸과 같은 모양(둥근 사각 테두리, 빈자리는 점선)으로 테이블 하나를 표시 */
+function TableBoxCell({ box }: { box: TableBox }) {
+  const style =
+    box.kind === "confirmed"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+      : box.kind === "pending"
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+        : box.kind === "waiting"
+          ? "border-dashed border-red-400/50 bg-red-500/5 text-red-500"
+          : "border-dashed border-black/15 bg-black/[0.02] text-neutral-300 dark:border-white/15 dark:bg-white/[0.02] dark:text-neutral-600";
+  const label =
+    box.kind === "confirmed"
+      ? "확정"
+      : box.kind === "pending"
+        ? "대기"
+        : box.kind === "waiting"
+          ? `대기${box.num}`
+          : "빈자리";
+
+  return (
+    <div
+      className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border text-center text-[9px] font-medium leading-tight ${style}`}
+    >
+      {label}
+    </div>
+  );
+}
+
+function LegendSwatch({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`h-3 w-3 rounded-md border ${className}`} />
+      {label}
+    </span>
   );
 }

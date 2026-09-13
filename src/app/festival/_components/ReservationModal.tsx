@@ -26,7 +26,7 @@ type Props = {
   /** 학과 선택지 (관리자 페이지에서 관리) */
   departments: string[];
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (info: { zone: "normal" | "overbook"; waitingNumber: number | null }) => void;
 };
 
 type Gender = "male" | "female";
@@ -45,6 +45,7 @@ type Form = {
   participantDepts: string[]; // index 0 = representative
   quantities: Record<string, number>;
   paymentConfirmed: boolean;
+  privacyConsent: boolean;
 };
 
 function initialForm(): Form {
@@ -62,6 +63,7 @@ function initialForm(): Form {
     participantDepts: ["", ""],
     quantities: {},
     paymentConfirmed: false,
+    privacyConsent: false,
   };
 }
 
@@ -135,7 +137,8 @@ export function ReservationModal({
     (!form.matchingEnabled ||
       (form.gender &&
         form.participantDepts.every((d) => d && d.length > 0))) &&
-    meetsMinOrder;
+    meetsMinOrder &&
+    form.privacyConsent;
 
   const step2Valid = form.paymentConfirmed && !!account;
 
@@ -303,7 +306,7 @@ export function ReservationModal({
         setSubmitError(result.error);
         return;
       }
-      onSubmit();
+      onSubmit({ zone: result.zone, waitingNumber: result.waitingNumber });
     } finally {
       setSubmitting(false);
     }
@@ -551,6 +554,23 @@ function Step1({
           </Field>
         </div>
       </section>
+
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
+        <Checkbox
+          checked={form.privacyConsent}
+          onChange={() => setField("privacyConsent", !form.privacyConsent)}
+        />
+        <div>
+          <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            개인정보 수집·이용 동의 (필수)
+          </span>
+          <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+            이름, 전화번호, 학과, 환불 계좌 정보를 예약 확인·매칭 안내·환불 처리 목적으로만
+            수집하며, 그 외 용도로는 사용하지 않습니다. 축제가 끝나면 수집한 개인정보는 모두
+            즉시 파기합니다.
+          </p>
+        </div>
+      </label>
 
       {/* 인원 및 과팅 */}
       <section>

@@ -4,6 +4,7 @@ import { requireAdmin, toActionResult, type ActionResult } from "./action-result
 import { listBoothsLight } from "./firestore-booths";
 import { rebuildBoothInventory } from "./firestore-inventory";
 import {
+  convertMatchingToGeneral,
   listReservations,
   pairReservations,
   setReservationStatus,
@@ -48,6 +49,18 @@ export async function unpairReservationAction(id: string): Promise<ActionResult>
   return toActionResult(async () => {
     await requireAdmin();
     await unpairReservation(id);
+  });
+}
+
+/** 확정된 매칭 예약(및 짝이 있으면 상대까지)을 취소하고 그 인원으로 일반 예약을 새로 접수 */
+export async function convertMatchingToGeneralAction(
+  id: string,
+  newHeadcount: number,
+): Promise<ActionResult<{ zone: "normal" | "overbook"; waitingNumber: number | null }>> {
+  return toActionResult(async () => {
+    await requireAdmin();
+    const { zone, waitingNumber } = await convertMatchingToGeneral(id, newHeadcount);
+    return { zone, waitingNumber };
   });
 }
 

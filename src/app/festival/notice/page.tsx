@@ -2,6 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getContactInfo } from "@/app/admin/_lib/firestore-settings";
 import { ContactDisplay } from "../_components/ContactDisplay";
+import { getFestivalData } from "../_lib/active-season";
+
+function formatDateKorean(date: string): string | null {
+  const [y, m, d] = date.split("-");
+  if (!y || !m || !d) return null;
+  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+}
 
 export const metadata: Metadata = {
   title: "예약 안내",
@@ -13,6 +20,10 @@ export const dynamic = "force-dynamic";
 
 export default async function FestivalNoticePage() {
   const contact = await getContactInfo().catch(() => null);
+  const { activeSeason } = await getFestivalData().catch(() => ({ activeSeason: null }));
+  const reservationDeadline = activeSeason
+    ? formatDateKorean(activeSeason.reservationEndDate)
+    : null;
 
   return (
     <main className="min-h-screen w-full bg-neutral-100 text-neutral-900 dark:bg-[#0b0805] dark:text-neutral-100">
@@ -52,8 +63,8 @@ export default async function FestivalNoticePage() {
               <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                 별칭을 배정
               </b>
-              해 드려요. 상대팀 소개와 매칭 성사 여부는 카카오톡으로 안내드리며, 현장에서는
-              이 별칭으로 서로를 확인하시면 됩니다.
+              해 드려요. 매칭 성사 여부는 카카오톡으로 안내드리며, 현장에서는 이 별칭으로
+              서로를 확인하시면 됩니다.
             </p>
             <p className="mt-3">
               아쉽게 매칭 상대를 찾지 못한 경우, 예약을 취소해드리거나 상대 팀 매칭 없이
@@ -61,8 +72,8 @@ export default async function FestivalNoticePage() {
             </p>
             <div className="mt-3 rounded-xl border border-purple-400/30 bg-purple-500/[0.06] p-3 text-[13px] leading-5">
               매칭 상대팀이 약속 시간 기준{" "}
-              <b className="font-semibold">15분 이상</b> 나타나지 않으면, 저희 카카오톡으로
-              바로 알려주세요. 확인 후 매칭 비용을 환불해드리고,{" "}
+              <b className="font-semibold">15분 이상</b> 나타나지 않으면, 이 페이지 하단에
+              있는 인스타그램 DM으로 바로 알려주세요. 확인 후 매칭 비용을 환불해드리고,{" "}
               <b className="font-semibold">테이블 정원 안에서</b> 다른 친구를 추가로 불러
               이용하실 수 있도록 도와드릴게요.
             </div>
@@ -72,12 +83,12 @@ export default async function FestivalNoticePage() {
             예약 시간에 맞춰 방문해주세요. 시간이 지나도 도착하지 않으면 안내 전화를
             드리며, 전화를 받지 않으실 경우{" "}
             <b className="font-semibold text-neutral-800 dark:text-neutral-100">
-              예약이 취소되고 입금하신 금액이 환불되지 않을 수 있습니다.
+              예약이 취소되고 입금하신 금액은 환불되지 않습니다.
             </b>{" "}
             늦으실 것 같으면 미리 연락 주시면 최대한 자리를 유지해드릴게요.
           </Section>
 
-          <Section num={4} title="이 밖에 꼭 알아두세요">
+          <Section num={4} title="입금 안내">
             <ul className="list-inside list-disc space-y-2 marker:text-amber-500">
               <li>
                 입금자명은{" "}
@@ -87,10 +98,61 @@ export default async function FestivalNoticePage() {
                 (예: 홍길동 1234)로 해주세요. 예약 화면에도 안내되어 있어요. 형식이
                 다르면 확인이 늦어질 수 있어요.
               </li>
-              <li>전화번호 하나로는 예약을 한 건만 하실 수 있어요.</li>
               <li>
-                예약 내용을 변경하거나 취소하고 싶으시면 방문 예정 시간 전에 미리
-                카카오톡으로 알려주세요.
+                예약 내용을 변경하거나 취소하고 싶으시면{" "}
+                <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                  이 페이지 하단에 있는 인스타그램 DM
+                </b>
+                으로 알려주세요.{" "}
+                <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                  예약 후 24시간 이내에만
+                </b>{" "}
+                변경·취소가 가능합니다.
+              </li>
+            </ul>
+          </Section>
+
+          <Section num={5} title="대기(오버부킹) 예약 안내" accent>
+            <p>
+              원하시는 시간대의 자리가 이미 다 찼어도, 저희가 여유분으로 몇 팀 더
+              접수를 받아요. 이 경우 예약 화면에{" "}
+              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                몇 번째 대기인지(대기 1번, 2번...)
+              </b>
+              가 함께 표시됩니다.
+            </p>
+            <p className="mt-3">
+              대기 예약은{" "}
+              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                앞선 예약이 취소되는 경우에만
+              </b>{" "}
+              순서대로 이용하실 수 있어요.
+              {reservationDeadline && (
+                <>
+                  {" "}
+                  예약 마감일(
+                  <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                    {reservationDeadline}
+                  </b>
+                  )까지 취소하시는 분이 없다면 아쉽게도 이용이 제한될 수 있습니다.
+                </>
+              )}
+            </p>
+            <p className="mt-3">
+              대기 순번이 당겨지거나 확정/취소 안내는 모두 카카오톡으로 개별
+              연락드리니 꼭 확인해주세요.
+            </p>
+          </Section>
+
+          <Section num={6} title="이 밖에 꼭 알아두세요">
+            <ul className="list-inside list-disc space-y-2 marker:text-amber-500">
+              <li>
+                같은 전화번호로는{" "}
+                <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                  같은 날짜·시간대에 한 건만
+                </b>{" "}
+                예약할 수 있어요. 날짜나 시간대가 다르면 같은 번호로 또 예약하실 수
+                있습니다.
               </li>
               <li>남겨주신 전화번호는 예약 확인·환불 안내 목적으로만 사용됩니다.</li>
             </ul>

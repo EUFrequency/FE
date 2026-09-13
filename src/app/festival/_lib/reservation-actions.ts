@@ -29,7 +29,7 @@ export type SubmitReservationInput = Omit<
 >;
 
 export type SubmitReservationResult =
-  | { ok: true; zone: "normal" | "overbook" }
+  | { ok: true; zone: "normal" | "overbook"; waitingNumber: number | null }
   | { ok: false; error: string };
 
 const MAX_TEXT_LEN = 40;
@@ -195,7 +195,7 @@ export async function submitReservationAction(
     const matchingFee = input.matching ? input.headcount * MATCHING_FEE_PER_PERSON : 0;
     const totalAmount = recomputed.menuAmount + matchingFee;
 
-    const { zone } = await createReservation(
+    const { zone, waitingNumber } = await createReservation(
       {
         ...input,
         phone,
@@ -206,7 +206,7 @@ export async function submitReservationAction(
       },
       slot,
     );
-    return { ok: true, zone };
+    return { ok: true, zone, waitingNumber };
   } catch (e) {
     if (e instanceof ReservationBlockedError) {
       return { ok: false, error: e.message };
