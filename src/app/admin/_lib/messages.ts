@@ -39,3 +39,24 @@ export function buildRejectionMessage(r: Reservation): string {
     `문의사항이 있으시면 편하게 말씀해주세요.`,
   ].join("\n");
 }
+
+/** 이미 확정된 매칭 예약을 취소할 때 안내 - 반려와 달리 입금이 이미 확인된 상태라 환불 안내 포함 */
+export function buildMatchingCancelMessage(r: Reservation): string {
+  return [
+    `안녕하세요 ${r.representativeName}님, 부득이하게 ${formatDateKorean(
+      r.date,
+    )} ${formatTimeWithParens(r.time)} 예약이 취소되었습니다.`,
+    `입금하신 금액은 확인 후 환불해드리겠습니다.`,
+    `문의사항이 있으시면 편하게 말씀해주세요.`,
+  ].join("\n");
+}
+
+/** 매칭 예약을 일반 예약으로 전환 접수했을 때 안내 */
+export function buildMatchingConvertMessage(r: Reservation, newHeadcount: number): string {
+  return [
+    `안녕하세요 ${r.representativeName}님, ${formatDateKorean(
+      r.date,
+    )} ${formatTimeWithParens(r.time)} 예약이 일반 예약(총 ${newHeadcount}명)으로 변경 접수되었습니다.`,
+    `확정 여부는 다시 안내드리겠습니다.`,
+  ].join("\n");
+}

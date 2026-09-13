@@ -9,9 +9,12 @@ import {
   rejectReservationAction,
   unpairReservationAction,
 } from "../../../_lib/reservation-actions";
+import { buildMatchingCancelMessage, buildMatchingConvertMessage } from "../../../_lib/messages";
 import { MIN_GENERAL_HEADCOUNT, type Reservation } from "../../../_lib/types";
-import { Badge, Button, Input, Label, Select } from "../../ui";
+import { Badge, Button, Checkbox, Input, Label, Select } from "../../ui";
+import { CopyButton } from "../../CopyButton";
 import { Modal } from "../../Modal";
+import { CopyableMessage } from "./PendingPanel";
 import { ReservationDetails } from "./ReservationDetails";
 
 type Side = "male" | "female";
@@ -36,6 +39,7 @@ export function MatchingTab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [convertTarget, setConvertTarget] = useState<Reservation | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
 
   const confirmedMatching = useMemo(
     () => state.reservations.filter((r) => r.matching && r.status === "approved"),
@@ -127,21 +131,14 @@ export function MatchingTab() {
     if (result.ok) dispatch({ type: "reservations/replaceAll", payload: result.data });
   }
 
-  async function handleCancel() {
-    if (!activeSingle) return;
-    if (!confirm(`${activeSingle.representativeName}님의 매칭 예약을 취소할까요?`)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await rejectReservationAction(activeSingle.id);
-      if (!result.ok) throw new Error(result.error);
-      dispatch({ type: "reservations/reject", payload: { id: activeSingle.id } });
-      clearSelection();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "취소에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
+  function requestCancel() {
+    if (activeSingle) setCancelTarget(activeSingle);
+  }
+
+  function handleCancelled(id: string) {
+    dispatch({ type: "reservations/reject", payload: { id } });
+    setCancelTarget(null);
+    clearSelection();
   }
 
   async function handleUnpair(r: Reservation) {
@@ -247,7 +244,7 @@ export function MatchingTab() {
             ))}
           </div>
         )}
-        <Button variant="danger" disabled={!activeSingle || busy} onClick={handleCancel}>
+        <Button variant="danger" disabled={!activeSingle || busy} onClick={requestCancel}>
           취소하기
         </Button>
         <Button
@@ -290,6 +287,16 @@ export function MatchingTab() {
             partner={convertTarget.pairedWith ? byId.get(convertTarget.pairedWith) ?? null : null}
             onDone={handleConverted}
             onCancel={() => setConvertTarget(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal open={cancelTarget !== null} onClose={() => setCancelTarget(null)}>
+        {cancelTarget && (
+          <CancelMatchingModal
+            reservation={cancelTarget}
+            onDone={() => handleCancelled(cancelTarget.id)}
+            onCancel={() => setCancelTarget(null)}
           />
         )}
       </Modal>
@@ -363,30 +370,72 @@ function GenderColumn({
   );
 }
 
-function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+function CancelMatchingModal({
+  reservation,
+  onDone,
+  onCancel,
+}: {
+  reservation: Reservation;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rejectReservationAction(reservation.id);
+      if (!result.ok) throw new Error(result.error);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "취소에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      onClick={onChange}
-      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition ${
-        checked
-          ? "border-amber-500 bg-amber-500 text-neutral-900"
-          : "border-neutral-400 bg-transparent dark:border-neutral-600"
-      }`}
-    >
-      {checked && (
-        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-none stroke-current">
-          <path
-            d="M5 10l3.5 3.5L15 6.5"
-            strokeWidth={2.2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-    </button>
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        매칭 예약 취소
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        아래 메시지를 복사해서 카카오톡으로 먼저 보내주세요. &quot;취소 처리&quot;를 눌러야
+        실제로 상태가 바뀝니다.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyButton text={reservation.phone} label="전화번호 복사" />
+        <CopyButton
+          text={`${reservation.bank} ${reservation.accountNumber}`}
+          label="계좌·은행 복사"
+        />
+      </div>
+
+      <div className="mt-3">
+        <ReservationDetails reservation={reservation} defaultOpen />
+      </div>
+
+      <div className="mt-4">
+        <CopyableMessage
+          label={reservation.representativeName}
+          text={buildMatchingCancelMessage(reservation)}
+        />
+      </div>
+
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          닫기
+        </Button>
+        <Button variant="danger" onClick={confirm} disabled={busy}>
+          {busy ? "처리 중..." : "취소 처리"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -461,6 +510,19 @@ function ConvertModal({
           className="mt-1"
         />
       </label>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <CopyButton text={reservation.phone} label="전화번호 복사" />
+      </div>
+
+      {valid && (
+        <div className="mt-3">
+          <CopyableMessage
+            label={reservation.representativeName}
+            text={buildMatchingConvertMessage(reservation, headcount)}
+          />
+        </div>
+      )}
 
       {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
 

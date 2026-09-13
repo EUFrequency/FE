@@ -9,6 +9,7 @@ import {
 import { buildApprovalMessage, buildRejectionMessage } from "../../../_lib/messages";
 import type { Reservation } from "../../../_lib/types";
 import { Button, Card, EmptyState } from "../../ui";
+import { CopyButton } from "../../CopyButton";
 import { Modal } from "../../Modal";
 import { CapacityGauge } from "./CapacityGauge";
 import { ReservationDetails } from "./ReservationDetails";
@@ -177,6 +178,7 @@ function PendingActionModal({
   onCancel: () => void;
 }) {
   const messages = messagesFor(action);
+  const r = action.reservation;
   return (
     <div className="p-5">
       <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
@@ -186,6 +188,19 @@ function PendingActionModal({
         아래 메시지를 복사해서 카카오톡으로 먼저 보내주세요. &quot;{confirmButtonLabel(action)}&quot;을
         눌러야 실제로 상태가 바뀝니다.
       </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyButton text={r.phone} label="전화번호 복사" />
+        {action.type === "reject" && (
+          <CopyButton text={`${r.bank} ${r.accountNumber}`} label="계좌·은행 복사" />
+        )}
+      </div>
+
+      {action.type === "reject" && (
+        <div className="mt-3">
+          <ReservationDetails reservation={r} defaultOpen />
+        </div>
+      )}
 
       <div className="mt-4 space-y-3">
         {messages.map((m, i) => (

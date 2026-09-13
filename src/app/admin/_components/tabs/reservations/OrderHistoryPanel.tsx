@@ -2,8 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
+import { rejectReservationAction } from "../../../_lib/reservation-actions";
 import type { Reservation } from "../../../_lib/types";
-import { Badge, Button, Card, EmptyState, Label, Select } from "../../ui";
+import { Badge, Button, Card, Checkbox, EmptyState, Label, Select } from "../../ui";
+import { CopyButton } from "../../CopyButton";
+import { Modal } from "../../Modal";
+import { ReservationDetails } from "./ReservationDetails";
 
 const HEADERS = [
   "순번",
@@ -18,6 +22,7 @@ const HEADERS = [
   "인원수",
   "배정된 별칭",
   "매칭 상대",
+  "관리",
 ] as const;
 /** 표/CSV 모두 이 칸 수 기준으로 정렬 - 헤더가 바뀌면 여기도 같이 맞춰야 함 */
 const COL_COUNT = HEADERS.length;
@@ -26,6 +31,8 @@ type DataRow = {
   kind: "data";
   key: string;
   seq: string;
+  /** 첫 줄에서만 채워짐 - "취소" 버튼이 어느 예약을 가리키는지 */
+  reservationId: string;
   date: string;
   time: string;
   representativeName: string;
@@ -181,6 +188,7 @@ function buildRows(filtered: Reservation[], boothLabel: string, grandTotal: numb
               kind: "data",
               key: `${r.id}-${ii}`,
               seq: first ? `#${currentSeq}` : "",
+              reservationId: first ? r.id : "",
               date: first ? r.date : "",
               time: first ? r.time : "",
               representativeName: first ? r.representativeName : "",
@@ -295,6 +303,7 @@ function rowsToCsv(rows: Row[]): string {
             row.headcount,
             row.alias === "-" ? "" : row.alias,
             row.pairedLabel,
+            "",
           ]),
         );
         break;
@@ -360,10 +369,11 @@ function TotalLikeRow({
 }
 
 export function OrderHistoryPanel() {
-  const { state } = useAdminStore();
+  const { state, dispatch } = useAdminStore();
   const [boothFilter, setBoothFilter] = useState<string>("");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<string>("all");
+  const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
 
   const approved = useMemo(
     () => state.reservations.filter((r) => r.status === "approved"),
@@ -413,6 +423,16 @@ export function OrderHistoryPanel() {
     () => buildRows(filtered, boothLabel, grandTotal),
     [filtered, boothLabel, grandTotal],
   );
+
+  const byReservationId = useMemo(
+    () => new Map(filtered.map((r) => [r.id, r])),
+    [filtered],
+  );
+
+  function handleCancelled(id: string) {
+    dispatch({ type: "reservations/reject", payload: { id } });
+    setCancelTarget(null);
+  }
 
   function handleBoothChange(id: string) {
     setBoothFilter(id);
@@ -502,6 +522,7 @@ export function OrderHistoryPanel() {
                   <th className="px-4 py-3 font-medium">인원수(N인 테이블)</th>
                   <th className="px-4 py-3 font-medium">배정된 별칭</th>
                   <th className="px-4 py-3 font-medium">매칭 상대</th>
+                  <th className="px-4 py-3 font-medium">관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -573,7 +594,7 @@ export function OrderHistoryPanel() {
                         <td className="px-4 py-2 text-right text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
                           {row.quantity}
                         </td>
-                        <td colSpan={4} />
+                        <td colSpan={COL_COUNT - 8} />
                       </tr>
                     );
                   }
@@ -640,6 +661,19 @@ export function OrderHistoryPanel() {
                           <Badge tone="sky">{row.pairedLabel}</Badge>
                         )}
                       </td>
+                      <td className="px-4 py-2.5">
+                        {row.reservationId !== "" && (
+                          <Button
+                            variant="danger"
+                            onClick={() => {
+                              const target = byReservationId.get(row.reservationId);
+                              if (target) setCancelTarget(target);
+                            }}
+                          >
+                            취소
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -654,6 +688,91 @@ export function OrderHistoryPanel() {
         예약마다 끝에 주문액 소계, 시간대·날짜가 끝날 때마다 그 구간 전체 메뉴 집계, 맨
         아래에 기간 전체 매출을 보여줍니다. CSV도 같은 구성으로 내려받습니다.
       </p>
+
+      <Modal open={cancelTarget !== null} onClose={() => setCancelTarget(null)}>
+        {cancelTarget && (
+          <CancelOrderModal
+            reservation={cancelTarget}
+            onDone={() => handleCancelled(cancelTarget.id)}
+            onCancel={() => setCancelTarget(null)}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * 확정된 주문(예약)을 취소하기 전에, 이미 환불을 진행했는지 다시 한번 확인시키는 모달.
+ * 계좌/은행 복사와 주문서(영수증)를 보여줘 얼마를 어디로 환불했어야 하는지 헷갈리지 않게 하고,
+ * 체크박스를 눌러야 "취소 처리" 버튼이 눌리게 해서 실수로 바로 취소되는 걸 막는다.
+ */
+function CancelOrderModal({
+  reservation,
+  onDone,
+  onCancel,
+}: {
+  reservation: Reservation;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [refunded, setRefunded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    if (!refunded) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rejectReservationAction(reservation.id);
+      if (!result.ok) throw new Error(result.error);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "취소 처리에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        주문 취소
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        환불을 먼저 진행한 뒤, 아래 체크박스를 눌러야 &quot;취소 처리&quot; 버튼이 활성화됩니다.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyButton
+          text={`${reservation.bank} ${reservation.accountNumber}`}
+          label="계좌·은행 복사"
+        />
+      </div>
+
+      <div className="mt-3">
+        <ReservationDetails reservation={reservation} defaultOpen />
+      </div>
+
+      <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl border border-black/10 p-3 dark:border-white/10">
+        <Checkbox checked={refunded} onChange={() => setRefunded((v) => !v)} />
+        <span className="text-sm text-neutral-700 dark:text-neutral-200">
+          {reservation.representativeName}님의 {reservation.bank} {reservation.accountNumber}{" "}
+          계좌로 {reservation.totalAmount.toLocaleString()}원 환불을 완료했습니다.
+        </span>
+      </label>
+
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          닫기
+        </Button>
+        <Button variant="danger" onClick={confirm} disabled={!refunded || busy}>
+          {busy ? "처리 중..." : "취소 처리"}
+        </Button>
+      </div>
     </div>
   );
 }

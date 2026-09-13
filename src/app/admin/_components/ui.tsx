@@ -148,6 +148,39 @@ export function Select(
   );
 }
 
+export function Checkbox({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={onChange}
+      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition ${
+        checked
+          ? "border-amber-500 bg-amber-500 text-neutral-900"
+          : "border-neutral-400 bg-transparent dark:border-neutral-600"
+      }`}
+    >
+      {checked && (
+        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-none stroke-current">
+          <path
+            d="M5 10l3.5 3.5L15 6.5"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export function EmptyState({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-black/10 text-sm text-neutral-400 dark:border-white/10 dark:text-neutral-500">
