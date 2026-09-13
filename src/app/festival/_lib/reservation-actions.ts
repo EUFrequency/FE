@@ -48,13 +48,22 @@ function recomputeOrder(
   booth: AdminBooth,
   items: ReservationOrderItem[],
 ): { orderItems: ReservationOrderItem[]; menuAmount: number } | null {
-  if (!Array.isArray(items) || items.length === 0) return null;
+  // 실제 폼은 주점 메뉴 하나당 최대 한 줄만 만들어서 보내므로(중복 없음), 그보다 긴
+  // 배열이나 같은 메뉴명 중복은 위조된 요청으로 보고 거부한다 - 그렇지 않으면 누구나
+  // 인증 없이 이 공개 폼에 수만 개짜리 orderItems 배열을 보내 예약 문서를 비정상적으로
+  // 부풀리거나(문서 용량/쓰기 비용 낭비) 처리 시간을 늘릴 수 있다.
+  if (!Array.isArray(items) || items.length === 0 || items.length > booth.menus.length) {
+    return null;
+  }
   const menuByName = new Map(booth.menus.map((m) => [m.name, m]));
   const orderItems: ReservationOrderItem[] = [];
+  const seen = new Set<string>();
   let menuAmount = 0;
 
   for (const item of items) {
     if (!item || typeof item.menuName !== "string") return null;
+    if (seen.has(item.menuName)) return null;
+    seen.add(item.menuName);
     const menu = menuByName.get(item.menuName);
     if (!menu) return null;
     const quantity = Math.trunc(Number(item.quantity));
