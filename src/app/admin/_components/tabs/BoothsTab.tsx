@@ -12,6 +12,7 @@ import {
   getBoothAliasPoolAction,
   saveBoothAliasPoolAction,
 } from "../../_lib/alias-actions";
+import { lowestMinOrderAmount } from "../../_lib/min-order";
 import type { AdminBooth } from "../../_lib/types";
 import { Modal } from "../Modal";
 import { Badge, Button, Card, EmptyState } from "../ui";
@@ -153,7 +154,7 @@ export function BoothsTab() {
                     </div>
                   </div>
                   <Badge tone="amber">
-                    최소 {booth.minOrder.toLocaleString()}원
+                    최소 {lowestMinOrderAmount(booth.minOrderRules).toLocaleString()}원~
                   </Badge>
                 </div>
                 <p className="mt-3 line-clamp-2 text-sm text-neutral-600 dark:text-neutral-300">

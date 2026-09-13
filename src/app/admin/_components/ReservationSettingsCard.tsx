@@ -1,52 +1,54 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { useAdminStore } from "../_lib/store";
 import {
-  getReservationSettingsAction,
-  setReservationSettingsAction,
-} from "../_lib/settings-actions";
-import type { ReservationSettingMode, ReservationSettings } from "../_lib/types";
-import { Card, SectionTitle } from "./ui";
+  forceCloseReservationAction,
+  forceOpenReservationAction,
+  listSeasonsAction,
+} from "../_lib/season-actions";
+import { isGeneralReservationOpen, isMatchingReservationOpen, isViewOpen } from "../_lib/season-status";
+import { formatPeriod } from "@/lib/kst";
+import { Button, Card, SectionTitle } from "./ui";
 
-const MODES: { value: ReservationSettingMode; label: string; hint: string }[] = [
-  { value: "auto", label: "자동", hint: "시즌 예약 기간을 따름" },
-  { value: "open", label: "강제 오픈", hint: "기간 무시하고 열기 (연장)" },
-  { value: "closed", label: "강제 마감", hint: "기간 무시하고 닫기 (조기마감)" },
-];
+type Kind = "general" | "matching";
 
 export function ReservationSettingsCard() {
-  const [settings, setSettings] = useState<ReservationSettings | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [savingKey, setSavingKey] = useState<keyof ReservationSettings | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
+  const { state, dispatch } = useAdminStore();
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    getReservationSettingsAction().then((res) => {
-      if (!alive) return;
-      if (res.ok) setSettings(res.data);
-      else setLoadError(res.error);
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // /festival과 똑같은 기준으로 "지금 조작 대상 시즌"을 고름 - 조회 가능하거나 진행중인
+  // 축제 시즌. 강제 오픈/마감은 이 시즌의 날짜를 직접 바꾸는 방식이라 여기서 딱 하나만 대상이 됨.
+  const activeSeason = useMemo(
+    () =>
+      state.seasons.find(
+        (s) => s.type === "festival" && s.status !== "ended" && (isViewOpen(s) || s.status === "ongoing"),
+      ) ?? null,
+    [state.seasons],
+  );
 
-  async function change(key: keyof ReservationSettings, mode: ReservationSettingMode) {
-    if (!settings) return;
-    const prev = settings;
-    const next = { ...settings, [key]: mode };
-    setSettings(next);
-    setRowError(null);
-    setSavingKey(key);
+  async function refresh() {
+    const result = await listSeasonsAction();
+    if (result.ok) dispatch({ type: "seasons/replaceAll", payload: result.data });
+  }
+
+  async function run(kind: Kind, action: "open" | "close") {
+    if (!activeSeason) return;
+    const key = `${kind}-${action}`;
+    setBusyKey(key);
+    setError(null);
     try {
-      const res = await setReservationSettingsAction(next);
-      if (!res.ok) throw new Error(res.error);
+      const result =
+        action === "open"
+          ? await forceOpenReservationAction(activeSeason.id, kind)
+          : await forceCloseReservationAction(activeSeason.id, kind);
+      if (!result.ok) throw new Error(result.error);
+      await refresh();
     } catch (e) {
-      setSettings(prev);
-      setRowError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+      setError(e instanceof Error ? e.message : "처리에 실패했습니다.");
     } finally {
-      setSavingKey(null);
+      setBusyKey(null);
     }
   }
 
@@ -54,35 +56,42 @@ export function ReservationSettingsCard() {
     <Card className="p-4">
       <SectionTitle hint="/festival 예약 접수 스위치">예약 접수 설정</SectionTitle>
       <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-        평소엔 &quot;자동&quot;으로 두면 시즌에 등록한 예약 기간을 따릅니다. 상황에 따라
-        일찍 닫거나(강제 마감), 기간이 지나도 계속 받아야 할 때(강제 오픈) 여기서 바꿉니다.
-        과팅 예약은 전체 예약이 열려 있어야 함께 열립니다.
+        평소엔 시즌 관리에서 등록한 예약 기간을 그대로 따릅니다. 상황에 따라 일찍
+        닫아야 하면(강제 마감) 지금 이 순간을 마감 시각으로, 기간이 지나도 계속 받아야
+        하면(강제 오픈) 지금 이 순간을 시작 시각으로 바꿉니다 - 원래 기간이 이미 끝난
+        뒤에 강제 오픈하면 마감은 &quot;종료시까지&quot;(무기한)로 바뀝니다.
       </p>
 
-      {loadError && (
-        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
-          {loadError}
-        </div>
-      )}
-      {rowError && (
+      {error && (
         <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-400">
-          {rowError}
+          {error}
         </div>
       )}
 
-      {settings && (
+      {!activeSeason ? (
+        <div className="mt-4 rounded-xl border border-dashed border-black/10 p-4 text-center text-xs text-neutral-400 dark:border-white/10 dark:text-neutral-500">
+          지금 조작할 수 있는 축제 시즌이 없습니다.
+        </div>
+      ) : (
         <div className="mt-4 space-y-4">
-          <SettingRow
-            label="전체 예약"
-            value={settings.general}
-            saving={savingKey === "general"}
-            onChange={(m) => change("general", m)}
+          <ReservationRow
+            label="일반 예약"
+            open={isGeneralReservationOpen(activeSeason)}
+            period={formatPeriod(activeSeason.reservationStartDate, activeSeason.reservationEndDate)}
+            busy={busyKey === "general-open" || busyKey === "general-close"}
+            onOpen={() => run("general", "open")}
+            onClose={() => run("general", "close")}
           />
-          <SettingRow
+          <ReservationRow
             label="과팅 예약"
-            value={settings.matching}
-            saving={savingKey === "matching"}
-            onChange={(m) => change("matching", m)}
+            open={isMatchingReservationOpen(activeSeason)}
+            period={formatPeriod(
+              activeSeason.matchingReservationStartDate,
+              activeSeason.matchingReservationEndDate,
+            )}
+            busy={busyKey === "matching-open" || busyKey === "matching-close"}
+            onOpen={() => run("matching", "open")}
+            onClose={() => run("matching", "close")}
           />
         </div>
       )}
@@ -90,43 +99,45 @@ export function ReservationSettingsCard() {
   );
 }
 
-function SettingRow({
+function ReservationRow({
   label,
-  value,
-  saving,
-  onChange,
+  open,
+  period,
+  busy,
+  onOpen,
+  onClose,
 }: {
   label: string;
-  value: ReservationSettingMode;
-  saving: boolean;
-  onChange: (m: ReservationSettingMode) => void;
+  open: boolean;
+  period: string;
+  busy: boolean;
+  onOpen: () => void;
+  onClose: () => void;
 }) {
   return (
-    <div>
-      <div className="mb-1.5 text-sm font-medium text-neutral-800 dark:text-neutral-200">
-        {label}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {MODES.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            disabled={saving}
-            title={m.hint}
-            onClick={() => onChange(m.value)}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
-              value === m.value
-                ? m.value === "closed"
-                  ? "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
-                  : m.value === "open"
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                : "border-black/10 text-neutral-500 hover:bg-black/5 dark:border-white/10 dark:text-neutral-400 dark:hover:bg-white/5"
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/5 p-3 dark:border-white/5">
+      <div>
+        <div className="flex items-center gap-2 text-sm font-medium text-neutral-800 dark:text-neutral-200">
+          {label}
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              open
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "bg-neutral-500/10 text-neutral-500 dark:text-neutral-400"
             }`}
           >
-            {m.label}
-          </button>
-        ))}
+            {open ? "접수중" : "닫힘"}
+          </span>
+        </div>
+        <div className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{period}</div>
+      </div>
+      <div className="flex gap-1.5">
+        <Button variant="secondary" disabled={busy} onClick={onOpen}>
+          강제 오픈
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={onClose}>
+          강제 마감
+        </Button>
       </div>
     </div>
   );

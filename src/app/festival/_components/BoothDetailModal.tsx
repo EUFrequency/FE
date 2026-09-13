@@ -1,15 +1,18 @@
 "use client";
 
 import { matchingHeadcountOptions } from "@/app/admin/_lib/slots";
+import { lowestMinOrderAmount } from "@/app/admin/_lib/min-order";
+import { formatPeriod } from "@/lib/kst";
 import type { FestivalBooth } from "../_lib/palette";
+import { ImageCarousel } from "./ImageCarousel";
 import { MenuThumb } from "./MenuThumb";
 
 type Props = {
   booth: FestivalBooth;
   /** 지금 예약 접수 기간인지 */
   reservationOpen: boolean;
-  /** 예약 접수 기간 (안내 문구용) */
-  reservationPeriod: { start: string; end: string } | null;
+  /** 예약 접수 기간 (안내 문구용) - end가 null이면 무기한("종료시까지") */
+  reservationPeriod: { start: string; end: string | null } | null;
   onClose: () => void;
   onReserve: () => void;
 };
@@ -54,22 +57,11 @@ export function BoothDetailModal({
             {booth.descriptionText}
           </p>
 
-          {booth.descriptionImages.length > 0 && (
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-              {booth.descriptionImages.map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={i}
-                  src={src}
-                  alt=""
-                  className="h-24 w-24 flex-shrink-0 rounded-xl object-cover"
-                />
-              ))}
-            </div>
-          )}
+          <ImageCarousel images={booth.descriptionImages} />
 
           <div className="mt-5 inline-block rounded-full border border-amber-500/50 bg-amber-500/10 px-4 py-1.5 text-sm font-medium text-amber-600 dark:text-amber-400">
-            최소 주문금액 {booth.minOrder.toLocaleString()}원
+            최소 주문금액 {lowestMinOrderAmount(booth.minOrderRules).toLocaleString()}원~
+            {booth.minOrderRules.length > 1 && " (인원수에 따라 달라요)"}
           </div>
 
           <div className="mt-8">
@@ -113,7 +105,7 @@ export function BoothDetailModal({
           </button>
           {!reservationOpen && reservationPeriod && (
             <div className="mt-2 text-center text-xs text-neutral-500 dark:text-neutral-400">
-              예약 기간: {reservationPeriod.start} ~ {reservationPeriod.end}
+              예약 기간: {formatPeriod(reservationPeriod.start, reservationPeriod.end)}
             </div>
           )}
         </div>

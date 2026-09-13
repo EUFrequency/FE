@@ -1,21 +1,17 @@
 "use client";
 
+import { formatKoreanDateTime } from "@/lib/kst";
+
 type Props = {
   boothName: string;
   /** available = 정원 내 확정 예약, overbook = 대기(오버부킹) 예약 */
   zone: "normal" | "overbook";
   /** overbook일 때 몇 번째 대기인지 (1부터 시작). normal이면 null */
   waitingNumber: number | null;
-  /** 전체 예약 마감일 (YYYY-MM-DD) - 대기 예약 안내 문구에 씀. 없으면 그 문장은 생략 */
+  /** 일반 예약 마감 시각 (YYYY-MM-DDTHH:mm) - 대기 예약 안내 문구에 씀. null(무기한)이면 생략 */
   reservationEndDate: string | null;
   onClose: () => void;
 };
-
-function formatDateKorean(date: string): string | null {
-  const [y, m, d] = date.split("-");
-  if (!y || !m || !d) return null;
-  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
-}
 
 export function SuccessDialog({
   boothName,
@@ -25,7 +21,7 @@ export function SuccessDialog({
   onClose,
 }: Props) {
   const overbooked = zone === "overbook";
-  const deadline = reservationEndDate ? formatDateKorean(reservationEndDate) : null;
+  const deadline = reservationEndDate ? formatKoreanDateTime(reservationEndDate) : null;
 
   return (
     <div

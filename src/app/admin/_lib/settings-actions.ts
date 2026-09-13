@@ -4,30 +4,9 @@ import { requireAdmin, toActionResult, type ActionResult } from "./action-result
 import {
   getContactInfo,
   getDepartments,
-  getReservationSettings,
   setContactInfo,
   setDepartments,
-  setReservationSettings,
 } from "./firestore-settings";
-import type { ReservationSettings } from "./types";
-
-export async function getReservationSettingsAction(): Promise<
-  ActionResult<ReservationSettings>
-> {
-  return toActionResult(async () => {
-    await requireAdmin();
-    return getReservationSettings();
-  });
-}
-
-export async function setReservationSettingsAction(
-  settings: ReservationSettings,
-): Promise<ActionResult> {
-  return toActionResult(async () => {
-    await requireAdmin();
-    await setReservationSettings(settings);
-  });
-}
 
 export async function getContactInfoAction(): Promise<ActionResult<string | null>> {
   return toActionResult(async () => {

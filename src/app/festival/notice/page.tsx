@@ -4,10 +4,12 @@ import { getContactInfo } from "@/app/admin/_lib/firestore-settings";
 import { ContactDisplay } from "../_components/ContactDisplay";
 import { getFestivalData } from "../_lib/active-season";
 
-function formatDateKorean(date: string): string | null {
-  const [y, m, d] = date.split("-");
+/** "YYYY-MM-DDTHH:mm" -> "2026년 9월 21일 13:00" */
+function formatDateTimeKorean(value: string): string | null {
+  const [datePart, timePart] = value.split("T");
+  const [y, m, d] = datePart.split("-");
   if (!y || !m || !d) return null;
-  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+  return `${y}년 ${Number(m)}월 ${Number(d)}일${timePart ? ` ${timePart}` : ""}`;
 }
 
 export const metadata: Metadata = {
@@ -21,9 +23,10 @@ export const dynamic = "force-dynamic";
 export default async function FestivalNoticePage() {
   const contact = await getContactInfo().catch(() => null);
   const { activeSeason } = await getFestivalData().catch(() => ({ activeSeason: null }));
-  const reservationDeadline = activeSeason
-    ? formatDateKorean(activeSeason.reservationEndDate)
-    : null;
+  const reservationDeadline =
+    activeSeason && activeSeason.reservationEndDate
+      ? formatDateTimeKorean(activeSeason.reservationEndDate)
+      : null;
 
   return (
     <main className="min-h-screen w-full bg-neutral-100 text-neutral-900 dark:bg-[#0b0805] dark:text-neutral-100">
@@ -80,8 +83,11 @@ export default async function FestivalNoticePage() {
           </Section>
 
           <Section num={3} title="노쇼 안내">
-            예약 시간에 맞춰 방문해주세요. 시간이 지나도 도착하지 않으면 안내 전화를
-            드리며, 전화를 받지 않으실 경우{" "}
+            예약 시간에 맞춰 방문해주세요. 예약 시간 기준{" "}
+            <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+              10분이 지나도
+            </b>{" "}
+            도착하지 않으면 안내 전화를 드리며, 전화를 받지 않으실 경우{" "}
             <b className="font-semibold text-neutral-800 dark:text-neutral-100">
               예약이 취소되고 입금하신 금액은 환불되지 않습니다.
             </b>{" "}

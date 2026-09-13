@@ -3,16 +3,17 @@ import { cache } from "react";
 import {
   isGeneralReservationOpen,
   isMatchingReservationOpen,
+  isViewOpen,
   listSeasons,
 } from "@/app/admin/_lib/firestore-seasons";
-import { getReservationSettings } from "@/app/admin/_lib/firestore-settings";
-import type { ReservationSettings, Season } from "@/app/admin/_lib/types";
+import type { Season } from "@/app/admin/_lib/types";
 
 type FestivalData = {
   seasons: Season[];
-  settings: ReservationSettings;
-  /** 지금 예약을 받고 있거나 진행 중인 축제 시즌 (없으면 null) */
+  /** 지금 조회 가능하거나(또는 진행 중인) 축제 시즌 (없으면 null) */
   activeSeason: Season | null;
+  /** 주점 정보·메뉴를 조회할 수 있는 기간인지 - false면 /festival 전체가 잠김 */
+  viewOpen: boolean;
   generalOpen: boolean;
   matchingOpen: boolean;
 };
@@ -22,30 +23,20 @@ type FestivalData = {
  * React cache()가 실제 Firestore 조회를 한 번만 하도록 묶어줌 (중복 읽기 방지).
  */
 export const getFestivalData = cache(async (): Promise<FestivalData> => {
-  const [seasons, settings] = await Promise.all([
-    listSeasons().catch(() => []),
-    getReservationSettings().catch(
-      () => ({ general: "auto", matching: "auto" }) as ReservationSettings,
-    ),
-  ]);
+  const seasons = await listSeasons().catch(() => []);
 
-  // 예약을 받는 중이거나 축제가 진행중인 축제 시즌 하나를 찾음.
-  // 이 "어떤 시즌이 지금 시즌인가" 판단은 항상 auto(실제 날짜) 기준으로만 함 - 관리자가
-  // 예약을 강제 오픈/마감으로 걸어놨다고 해서 엉뚱한(예: 내년) 시즌이 선택되면 안 되기 때문.
-  // 강제 오픈/마감은 아래 generalOpen/matchingOpen처럼 "선택된 시즌의 예약 가능 여부"에만 적용.
+  // 조회 가능하거나 축제가 진행중인 축제 시즌 하나를 찾음 - 강제 오픈/마감은 시즌의
+  // 조회/예약 시각 자체를 바꾸는 방식이라(firestore-seasons.ts 참고) 별도 모드 분기가 없음.
   const activeSeason =
     seasons.find(
-      (s) =>
-        s.type === "festival" &&
-        s.status !== "ended" &&
-        (isGeneralReservationOpen(s, "auto") || s.status === "ongoing"),
+      (s) => s.type === "festival" && s.status !== "ended" && (isViewOpen(s) || s.status === "ongoing"),
     ) ?? null;
 
   return {
     seasons,
-    settings,
     activeSeason,
-    generalOpen: activeSeason ? isGeneralReservationOpen(activeSeason, settings.general) : false,
-    matchingOpen: activeSeason ? isMatchingReservationOpen(activeSeason, settings) : false,
+    viewOpen: activeSeason ? isViewOpen(activeSeason) : false,
+    generalOpen: activeSeason ? isGeneralReservationOpen(activeSeason) : false,
+    matchingOpen: activeSeason ? isMatchingReservationOpen(activeSeason) : false,
   };
 });

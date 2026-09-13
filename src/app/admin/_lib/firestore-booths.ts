@@ -2,7 +2,7 @@ import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { queueRemoveBoothFromLayouts } from "./firestore-layouts";
 import { deleteBoothInventory } from "./firestore-inventory";
-import type { AdminBooth, MenuItem, TableConfig, TimeSlot } from "./types";
+import { MAX_GENERAL_HEADCOUNT, type AdminBooth, type MenuItem, type MinOrderRule, type TableConfig, type TimeSlot } from "./types";
 
 const BOOTHS_COLLECTION = "booths";
 const IMAGES_SUBCOLLECTION = "images";
@@ -22,7 +22,9 @@ type BoothDocData = {
   ownerName: string;
   ownerPhone: string | null;
   descriptionText: string;
-  minOrder: number;
+  minOrderRules?: MinOrderRule[];
+  /** @deprecated minOrderRules 도입 전 문서 호환용 - 고정 금액 하나였음 */
+  minOrder?: number;
   tables: AdminBooth["tables"];
   timeSlots?: TimeSlot[];
   menus: Omit<MenuItem, "image">[];
@@ -45,6 +47,18 @@ function normalizeTimeSlots(slots: TimeSlot[] | undefined): TimeSlot[] {
   return (slots ?? []).filter((s) => s.label && s.startTime && s.endTime);
 }
 
+/** minOrderRules가 없던 시절(고정 금액 minOrder 하나) 문서 호환: 인원 제한 없는 규칙 하나로 변환 */
+function normalizeMinOrderRules(
+  rules: MinOrderRule[] | undefined,
+  legacyMinOrder: number | undefined,
+): MinOrderRule[] {
+  if (Array.isArray(rules) && rules.length > 0) return rules;
+  if (typeof legacyMinOrder === "number") {
+    return [{ maxHeadcount: MAX_GENERAL_HEADCOUNT, minAmount: legacyMinOrder }];
+  }
+  return [];
+}
+
 function toLightBooth(id: string, data: BoothDocData): AdminBooth {
   return {
     id,
@@ -55,7 +69,7 @@ function toLightBooth(id: string, data: BoothDocData): AdminBooth {
     descriptionText: data.descriptionText,
     descriptionImages: [],
     menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
-    minOrder: data.minOrder,
+    minOrderRules: normalizeMinOrderRules(data.minOrderRules, data.minOrder),
     tables: normalizeTables(data.tables),
     timeSlots: normalizeTimeSlots(data.timeSlots),
     accountId: data.accountId ?? null,
@@ -97,7 +111,7 @@ async function hydrateBoothWithImages(
       ...m,
       image: menuImageByMenuId.get(m.id) ?? "",
     })),
-    minOrder: data.minOrder,
+    minOrderRules: normalizeMinOrderRules(data.minOrderRules, data.minOrder),
     tables: normalizeTables(data.tables),
     timeSlots: normalizeTimeSlots(data.timeSlots),
     accountId: data.accountId ?? null,
@@ -146,7 +160,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
     ownerName: booth.ownerName,
     ownerPhone: booth.ownerPhone,
     descriptionText: booth.descriptionText,
-    minOrder: booth.minOrder,
+    minOrderRules: booth.minOrderRules,
     tables: booth.tables,
     timeSlots: booth.timeSlots,
     menus: menusMeta,

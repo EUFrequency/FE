@@ -132,13 +132,13 @@ export async function setReservationStatus(
     if (data.status === "rejected") return;
 
     // 짝지어진 매칭 상대가 있으면 - 이 예약이 거절돼도 상대는 그대로 승인 상태를 유지하되
-    // (혼자 이용 가능), 더 이상 짝이 없으니 pairedWith만 풀어줌
+    // (혼자 이용 가능), 더 이상 짝이 없으니 pairedWith만 풀어줌 (상대의 별칭은 그대로 둠 -
+    // 나중에 다른 상대와 다시 맺으면 그때 pairReservations가 새 별칭으로 덮어씀)
     const partnerRef = data.pairedWith
       ? reservationsCollection().doc(data.pairedWith)
       : null;
     const partnerSnap = partnerRef ? await tx.get(partnerRef) : null;
 
-    const alias = data.assignedAlias ?? null;
     const boothId = data.boothId;
     // 일반 예약은 테이블 조합(tableAssignment)이라 여러 슬롯을 동시에 -해야 할 수 있음
     const slotEntries = boothId
@@ -162,18 +162,6 @@ export async function setReservationStatus(
       ),
     }));
 
-    let poolRef: FirebaseFirestore.DocumentReference | null = null;
-    let assigned: string[] | null = null;
-    if (alias && boothId) {
-      poolRef = db.collection(ALIASES_COLLECTION).doc(boothId);
-      const poolSnap = await tx.get(poolRef);
-      if (poolSnap.exists) {
-        assigned = Array.isArray(poolSnap.data()?.assigned)
-          ? (poolSnap.data()!.assigned as string[])
-          : [];
-      }
-    }
-
     tx.update(resRef, { status: "rejected", assignedAlias: null, pairedWith: null });
     if (partnerRef && partnerSnap?.exists) {
       tx.update(partnerRef, { pairedWith: null });
@@ -184,9 +172,6 @@ export async function setReservationStatus(
     if (data.phone && data.date && data.time) {
       tx.delete(phoneMarkerRef(data.phone, data.date, data.time));
     }
-    if (poolRef && assigned) {
-      tx.update(poolRef, { assigned: assigned.filter((a) => a !== alias) });
-    }
   });
 }
 
@@ -195,11 +180,23 @@ export class PairReservationsError extends Error {}
 /**
  * 이미 각자 승인(확정)된 매칭 예약 둘을 짝으로 묶는다 (관리자 페이지의 "매칭 관리" 탭에서 사용).
  * 승인은 성별별 정원(canApproveReservation)만으로 이미 끝난 상태라, 여기서는 상태를 바꾸지
- * 않고 서로의 id만 pairedWith에 기록한다 - 같은 주점/날짜/시간대/인원수 + 서로 반대 성별
- * + 둘 다 승인 상태 + 둘 다 아직 짝이 없어야 함.
+ * 않고 서로의 id를 pairedWith에 기록하면서 같은 별칭(alias)을 양쪽에 똑같이 배정한다 -
+ * 같은 주점/날짜/시간대/인원수 + 서로 반대 성별 + 둘 다 승인 상태 + 둘 다 아직 짝이 없어야 함.
+ *
+ * 별칭은 그 주점의 별칭 풀(boothAliases)에서 고르되, 같은 주점/날짜/시간대 안에서 다른
+ * 승인된 예약이 이미 쓰고 있으면 거부한다(다른 회차는 겹쳐도 됨 - 그날 그 시간대에만
+ * 사람들이 서로를 구분하면 되므로). 풀에 없는 새 별칭을 넘기면 그 자리에서 풀에도
+ * 추가해서, 이후 다른 매칭에서도 바로 고를 수 있게 한다.
  */
-export async function pairReservations(idA: string, idB: string): Promise<void> {
+export async function pairReservations(
+  idA: string,
+  idB: string,
+  alias: string,
+): Promise<void> {
   if (idA === idB) throw new PairReservationsError("같은 예약을 짝지을 수 없습니다.");
+  const trimmedAlias = alias.trim();
+  if (!trimmedAlias) throw new PairReservationsError("별칭을 입력해주세요.");
+
   const db = getAdminDb();
   await db.runTransaction(async (tx) => {
     const refA = reservationsCollection().doc(idA);
@@ -228,8 +225,40 @@ export async function pairReservations(idA: string, idB: string): Promise<void> 
       );
     }
 
-    tx.update(refA, { pairedWith: idB });
-    tx.update(refB, { pairedWith: idA });
+    const boothId = a.boothId!;
+    const date = a.date!;
+    const time = a.time!;
+
+    const sameSlotSnap = await tx.get(
+      reservationsCollection()
+        .where("boothId", "==", boothId)
+        .where("date", "==", date)
+        .where("time", "==", time)
+        .where("status", "==", "approved"),
+    );
+    const aliasTaken = sameSlotSnap.docs.some(
+      (d) =>
+        d.id !== idA &&
+        d.id !== idB &&
+        (d.data().assignedAlias as string | null | undefined) === trimmedAlias,
+    );
+    if (aliasTaken) {
+      throw new PairReservationsError(
+        `"${trimmedAlias}" 별칭은 같은 날짜·시간대에 이미 사용 중입니다.`,
+      );
+    }
+
+    const poolRef = getAdminDb().collection(ALIASES_COLLECTION).doc(boothId);
+    const poolSnap = await tx.get(poolRef);
+    const poolAliases: string[] = Array.isArray(poolSnap.data()?.aliases)
+      ? (poolSnap.data()!.aliases as string[])
+      : [];
+
+    tx.update(refA, { pairedWith: idB, assignedAlias: trimmedAlias });
+    tx.update(refB, { pairedWith: idA, assignedAlias: trimmedAlias });
+    if (!poolAliases.includes(trimmedAlias)) {
+      tx.set(poolRef, { boothId, aliases: [...poolAliases, trimmedAlias] }, { merge: true });
+    }
   });
 }
 
@@ -339,10 +368,10 @@ export class ReservationBlockedError extends Error {
  *  1) 같은 날짜·시간대 전화번호 중복 확인
  *  2) 매칭이면 정원 슬롯 하나, 일반이면 인원에 맞는 테이블 조합을 찾아 정원(+오버부킹)
  *     초과 여부를 확인하고 필요한 만큼 슬롯을 +1
- *  3) 과팅이면 주점 별칭 풀에서 겹치지 않는 별칭 배정
- * status는 항상 "pending"으로 시작.
+ * status는 항상 "pending"으로 시작하고, 별칭(assignedAlias)은 아직 없음(null) -
+ * 매칭 관리 탭에서 짝을 지을 때 관리자가 배정한다(pairReservations 참고).
  *
- * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 + 배정된 별칭 +
+ * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 +
  *          오버부킹이면 대기 번째 수 (1부터 시작, 정원을 넘긴 뒤 몇 번째로 접수됐는지)
  */
 export async function createReservation(
@@ -359,7 +388,6 @@ export async function createReservation(
   const db = getAdminDb();
   const reservationRef = reservationsCollection().doc();
   const pRef = phoneMarkerRef(input.phone, input.date, input.time);
-  const poolRef = db.collection(ALIASES_COLLECTION).doc(input.boothId);
 
   return db.runTransaction(async (tx) => {
     // --- 읽기 먼저 ---
@@ -437,21 +465,9 @@ export async function createReservation(
       if (zone === "overbook") waitingNumber = maxOverbookDepth;
     }
 
-    let assignedAlias: string | null = null;
-    let poolAssigned: string[] | null = null;
-    if (input.matching) {
-      const poolSnap = await tx.get(poolRef);
-      if (poolSnap.exists) {
-        const aliases: string[] = Array.isArray(poolSnap.data()?.aliases)
-          ? (poolSnap.data()!.aliases as string[])
-          : [];
-        const assigned: string[] = Array.isArray(poolSnap.data()?.assigned)
-          ? (poolSnap.data()!.assigned as string[])
-          : [];
-        assignedAlias = aliases.find((a) => !assigned.includes(a)) ?? null;
-        if (assignedAlias) poolAssigned = [...assigned, assignedAlias];
-      }
-    }
+    // 별칭은 이제 예약 접수 시점이 아니라 매칭 관리 탭에서 짝을 지을 때 배정되므로
+    // (pairReservations 참고) 여기서는 항상 null로 시작한다.
+    const assignedAlias: string | null = null;
 
     // --- 쓰기 ---
     // matchingGender/participantDepartments처럼 과팅 미신청 시 undefined로 넘어오는 값은
@@ -477,8 +493,6 @@ export async function createReservation(
       time: input.time,
       createdAt: FieldValue.serverTimestamp(),
     });
-    if (poolAssigned) tx.update(poolRef, { assigned: poolAssigned });
-
     return { zone, assignedAlias, waitingNumber };
   });
 }

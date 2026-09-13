@@ -4,7 +4,8 @@ import { useState } from "react";
 import { createId } from "../../_lib/id";
 import { formatPhoneInput } from "@/lib/phone";
 import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
-import type { AdminBooth, MenuItem, TableConfig, TimeSlot } from "../../_lib/types";
+import { MAX_GENERAL_HEADCOUNT } from "../../_lib/types";
+import type { AdminBooth, MenuItem, MinOrderRule, TableConfig, TimeSlot } from "../../_lib/types";
 import { AccountManager } from "../AccountManager";
 import { Button, Input, Label, Textarea } from "../ui";
 
@@ -38,6 +39,10 @@ function defaultTimeSlots(): TimeSlot[] {
   ];
 }
 
+function defaultMinOrderRules(): MinOrderRule[] {
+  return [{ maxHeadcount: MAX_GENERAL_HEADCOUNT, minAmount: 0 }];
+}
+
 export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Props) {
   const [department, setDepartment] = useState(initial?.department ?? "");
   const [name, setName] = useState(initial?.name ?? "");
@@ -52,7 +57,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const [menus, setMenus] = useState<MenuItem[]>(
     initial?.menus.length ? initial.menus : [emptyMenu()],
   );
-  const [minOrder, setMinOrder] = useState(initial?.minOrder ?? 0);
+  const [minOrderRules, setMinOrderRules] = useState<MinOrderRule[]>(
+    initial?.minOrderRules.length ? initial.minOrderRules : defaultMinOrderRules(),
+  );
   const [tables, setTables] = useState<TableConfig[]>(
     initial?.tables.length ? initial.tables : defaultTables(),
   );
@@ -75,12 +82,13 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
     (t) => t.label.trim() && t.startTime && t.endTime,
   );
   const hasInvalidTimeRange = validTimeSlots.some((t) => t.endTime <= t.startTime);
+  const validMinOrderRules = minOrderRules.filter((r) => r.maxHeadcount > 0);
   const valid =
     department.trim() &&
     name.trim() &&
     ownerName.trim() &&
     descriptionText.trim() &&
-    minOrder > 0 &&
+    validMinOrderRules.length > 0 &&
     validMenus.length > 0 &&
     !hasOddMatchingTable &&
     validTimeSlots.length > 0 &&
@@ -128,7 +136,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
           descriptionText: descriptionText.trim(),
           descriptionImages,
           menus: validMenus,
-          minOrder: Number(minOrder),
+          minOrderRules: [...validMinOrderRules].sort(
+            (a, b) => a.maxHeadcount - b.maxHeadcount,
+          ),
           tables: tables.filter((t) => t.capacity > 0),
           timeSlots: validTimeSlots,
           accountId,
@@ -195,16 +205,6 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
             value={ownerPhone}
             onChange={(e) => setOwnerPhone(formatPhoneInput(e.target.value))}
             placeholder="010-1234-5678"
-          />
-        </label>
-        <label className="block">
-          <Label>최소 주문금액 (원)</Label>
-          <Input
-            className="mt-1.5"
-            type="number"
-            min={0}
-            value={minOrder}
-            onChange={(e) => setMinOrder(Number(e.target.value))}
           />
         </label>
       </div>
@@ -337,6 +337,75 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
             </div>
           ))}
         </div>
+      </div>
+
+      {/* 최소 주문금액 규칙 */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between">
+          <Label hint="(예: 2인 이하 10,000원 이상, 4인 이하 20,000원 이상 - 인원수 구간별로 설정)">
+            최소 주문금액
+          </Label>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() =>
+              setMinOrderRules((prev) => [...prev, { maxHeadcount: 0, minAmount: 0 }])
+            }
+          >
+            + 규칙 추가
+          </Button>
+        </div>
+        <div className="mt-2 space-y-2">
+          {minOrderRules.map((rule, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                value={rule.maxHeadcount}
+                onChange={(e) =>
+                  setMinOrderRules((prev) =>
+                    prev.map((r, idx) =>
+                      idx === i ? { ...r, maxHeadcount: Number(e.target.value) } : r,
+                    ),
+                  )
+                }
+                className="w-20"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">인 이하</span>
+              <Input
+                type="number"
+                min={0}
+                value={rule.minAmount}
+                onChange={(e) =>
+                  setMinOrderRules((prev) =>
+                    prev.map((r, idx) =>
+                      idx === i ? { ...r, minAmount: Number(e.target.value) } : r,
+                    ),
+                  )
+                }
+                className="w-28"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">원 이상 주문</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setMinOrderRules((prev) =>
+                    prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev,
+                  )
+                }
+                disabled={minOrderRules.length <= 1}
+                className="ml-auto grid h-9 w-9 place-items-center rounded-lg text-neutral-400 transition hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30"
+                aria-label={`최소 주문금액 규칙 ${i + 1} 삭제`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+          가장 큰 인원수 규칙이 그보다 인원이 많은 예약에도 그대로 적용됩니다. 저장할 때
+          인원수가 적은 순서로 자동 정렬돼요.
+        </p>
       </div>
 
       {/* 테이블 정보 */}

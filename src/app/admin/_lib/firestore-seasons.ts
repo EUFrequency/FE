@@ -1,12 +1,11 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { nowKST, todayKST } from "@/lib/kst";
 import { queueDeleteLayout } from "./firestore-layouts";
-import type {
-  ReservationSettingMode,
-  ReservationSettings,
-  Season,
-  SeasonStatus,
-} from "./types";
+import { isGeneralReservationOpen, isMatchingReservationOpen, isViewOpen } from "./season-status";
+import type { Season, SeasonStatus } from "./types";
+
+export { isGeneralReservationOpen, isMatchingReservationOpen, isViewOpen };
 
 const COLLECTION = "seasons";
 
@@ -20,71 +19,54 @@ function seasonsCollection() {
 /** 오늘 날짜, 조기종료 여부, 시작/종료일만으로 상태를 계산 - 관리자가 따로 켜고 끌 필요 없음 */
 function computeStatus(season: Pick<Season, "startDate" | "endDate" | "earlyEndedAt">): SeasonStatus {
   if (season.earlyEndedAt) return "ended";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKST();
   if (today < season.startDate) return "upcoming";
   if (today > season.endDate) return "ended";
   return "ongoing";
 }
 
+/** 필드가 없으면 fallback, 옛날처럼 시간 없는 "YYYY-MM-DD"면 그날 00:00으로 채움 */
+function normalizeStart(value: string | undefined, fallback: string): string {
+  const raw = value ?? fallback;
+  return raw.includes("T") ? raw : `${raw}T00:00`;
+}
+
+/** 필드가 없으면 fallback, null이면 그대로 null(무기한), 시간 없는 옛날 값이면 그날 23:59로 채움 */
+function normalizeEnd(
+  value: string | null | undefined,
+  fallback: string | null,
+): string | null {
+  const raw = value === undefined ? fallback : value;
+  if (raw === null) return null;
+  return raw.includes("T") ? raw : `${raw}T23:59`;
+}
+
 function toSeason(id: string, data: SeasonDocData): Season {
-  const reservationStartDate = data.reservationStartDate ?? data.startDate;
-  const reservationEndDate = data.reservationEndDate ?? data.endDate;
+  const reservationStartDate = normalizeStart(data.reservationStartDate, data.startDate);
+  const reservationEndDate = normalizeEnd(data.reservationEndDate, data.endDate);
+  const matchingReservationStartDate = normalizeStart(
+    data.matchingReservationStartDate,
+    reservationStartDate,
+  );
+  const matchingReservationEndDate = normalizeEnd(
+    data.matchingReservationEndDate,
+    reservationEndDate,
+  );
+  // 조회 기간이 없던 시절 문서 호환: 일반 예약 기간과 동일하게 취급(그게 곧 이전의 "볼 수 있는 기간")
+  const viewStartDate = normalizeStart(data.viewStartDate, reservationStartDate);
+  const viewEndDate = normalizeEnd(data.viewEndDate, reservationEndDate);
+
   return {
     id,
     ...data,
-    // 예약 기간 필드가 없던 시절 문서 호환: 없으면 축제 기간 / 전체 예약 기간과 동일하게 취급
     reservationStartDate,
     reservationEndDate,
-    matchingReservationStartDate:
-      data.matchingReservationStartDate ?? reservationStartDate,
-    matchingReservationEndDate:
-      data.matchingReservationEndDate ?? reservationEndDate,
+    matchingReservationStartDate,
+    matchingReservationEndDate,
+    viewStartDate,
+    viewEndDate,
     status: computeStatus(data),
   };
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * 지금 전체(일반) 예약을 받는 중인지.
- * settings.general이 open/closed면 날짜 무시하고 강제, auto면 시즌 예약 기간을 따름.
- */
-export function isGeneralReservationOpen(
-  season: Pick<Season, "status" | "reservationStartDate" | "reservationEndDate">,
-  mode: ReservationSettingMode,
-): boolean {
-  if (season.status === "ended") return false;
-  if (mode === "closed") return false;
-  if (mode === "open") return true;
-  const t = today();
-  return season.reservationStartDate <= t && t <= season.reservationEndDate;
-}
-
-/**
- * 지금 과팅 예약을 받는 중인지. 전체 예약이 열려 있어야 하고,
- * settings.matching이 open/closed면 강제, auto면 시즌 매칭 예약 기간을 따름.
- */
-export function isMatchingReservationOpen(
-  season: Pick<
-    Season,
-    | "status"
-    | "reservationStartDate"
-    | "reservationEndDate"
-    | "matchingReservationStartDate"
-    | "matchingReservationEndDate"
-  >,
-  settings: ReservationSettings,
-): boolean {
-  if (!isGeneralReservationOpen(season, settings.general)) return false;
-  if (settings.matching === "closed") return false;
-  if (settings.matching === "open") return true;
-  const t = today();
-  return (
-    season.matchingReservationStartDate <= t &&
-    t <= season.matchingReservationEndDate
-  );
 }
 
 export async function listSeasons(): Promise<Season[]> {
@@ -110,25 +92,54 @@ async function findOverlap(
   return null;
 }
 
-/** add/update 공용 날짜 검증. 문제 있으면 에러를 던짐 */
+/**
+ * add/update 공용 날짜 검증. 폼은 항상 구체적인 값을 요구하므로(무기한 null은 대시보드의
+ * 강제 오픈에서만 생김) 여기 들어오는 종료 시각들은 실질적으로 항상 값이 있다고 보되,
+ * 타입상 null일 수 있어 방어적으로 처리한다. 포함 관계: 조회 ⊇ 일반예약 ⊇ 과팅예약.
+ */
 function validateSeasonDates(season: Omit<Season, "id" | "status">): void {
   if (season.startDate > season.endDate) {
     throw new Error("축제 종료일이 시작일보다 빠릅니다.");
   }
-  if (season.reservationStartDate > season.reservationEndDate) {
-    throw new Error("전체 예약 마감일이 시작일보다 빠릅니다.");
-  }
-  if (season.reservationEndDate > season.endDate) {
-    throw new Error("전체 예약 마감일은 축제 종료일보다 늦을 수 없습니다.");
-  }
-  if (season.matchingReservationStartDate > season.matchingReservationEndDate) {
-    throw new Error("과팅 예약 마감일이 시작일보다 빠릅니다.");
+  if (season.viewEndDate !== null && season.viewStartDate > season.viewEndDate) {
+    throw new Error("조회 마감 시각이 시작 시각보다 빠릅니다.");
   }
   if (
-    season.matchingReservationStartDate < season.reservationStartDate ||
-    season.matchingReservationEndDate > season.reservationEndDate
+    season.reservationEndDate !== null &&
+    season.reservationStartDate > season.reservationEndDate
   ) {
-    throw new Error("과팅 예약 기간은 전체 예약 기간 안에 있어야 합니다.");
+    throw new Error("일반 예약 마감 시각이 시작 시각보다 빠릅니다.");
+  }
+  if (
+    season.reservationEndDate !== null &&
+    season.reservationEndDate > `${season.endDate}T23:59`
+  ) {
+    throw new Error("일반 예약 마감 시각은 축제 종료일 이내여야 합니다.");
+  }
+  if (season.viewStartDate > season.reservationStartDate) {
+    throw new Error("조회 기간은 일반 예약 시작 시각보다 먼저(또는 같이) 시작해야 합니다.");
+  }
+  if (
+    season.viewEndDate !== null &&
+    (season.reservationEndDate === null || season.viewEndDate < season.reservationEndDate)
+  ) {
+    throw new Error("조회 기간은 일반 예약 마감 시각까지(또는 그 이후까지) 있어야 합니다.");
+  }
+  if (
+    season.matchingReservationEndDate !== null &&
+    season.matchingReservationStartDate > season.matchingReservationEndDate
+  ) {
+    throw new Error("과팅 예약 마감 시각이 시작 시각보다 빠릅니다.");
+  }
+  if (season.matchingReservationStartDate < season.reservationStartDate) {
+    throw new Error("과팅 예약 기간은 일반 예약 기간 안에 있어야 합니다.");
+  }
+  if (
+    season.reservationEndDate !== null &&
+    (season.matchingReservationEndDate === null ||
+      season.matchingReservationEndDate > season.reservationEndDate)
+  ) {
+    throw new Error("과팅 예약 기간은 일반 예약 기간 안에 있어야 합니다.");
   }
 }
 
@@ -178,8 +189,73 @@ export async function updateSeason(
  * (그날 하루는 아직 기간 안이라 날짜 계산만으론 "진행중"으로 보일 수 있어서, 명시적으로 고정).
  */
 export async function endSeasonEarly(id: string): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKST();
   await seasonsCollection().doc(id).update({ endDate: today, earlyEndedAt: today });
+}
+
+type ReservationKind = "general" | "matching";
+
+/**
+ * 대시보드의 "강제 오픈" - 누른 시점(KST)을 그 종류(일반/과팅)의 시작 시각으로 바꿔서
+ * 지금 당장 열리게 한다. 원래 종료 시각이 이미 지난 과거였다면(마감된 뒤 다시 여는 경우)
+ * 종료 시각을 null(무기한/"종료시까지")로 바꾼다. 조회 기간이 새 예약 기간을 못 담으면
+ * (조회가 안 되면 예약 폼까지 갈 수 없으므로) 조회 기간도 함께 넓힌다.
+ */
+export async function forceOpenReservation(
+  seasonId: string,
+  kind: ReservationKind,
+): Promise<void> {
+  const ref = seasonsCollection().doc(seasonId);
+  const doc = await ref.get();
+  if (!doc.exists) throw new Error("시즌을 찾을 수 없습니다.");
+  const season = toSeason(doc.id, doc.data() as SeasonDocData);
+
+  const now = nowKST();
+  const patch: Record<string, string | null> = {};
+
+  let newEnd: string | null;
+  if (kind === "general") {
+    newEnd = season.reservationEndDate !== null && season.reservationEndDate < now
+      ? null
+      : season.reservationEndDate;
+    patch.reservationStartDate = now;
+    patch.reservationEndDate = newEnd;
+  } else {
+    newEnd =
+      season.matchingReservationEndDate !== null && season.matchingReservationEndDate < now
+        ? null
+        : season.matchingReservationEndDate;
+    patch.matchingReservationStartDate = now;
+    patch.matchingReservationEndDate = newEnd;
+  }
+
+  if (now < season.viewStartDate) {
+    patch.viewStartDate = now;
+  }
+  if (newEnd === null) {
+    if (season.viewEndDate !== null) patch.viewEndDate = null;
+  } else if (season.viewEndDate !== null && season.viewEndDate < newEnd) {
+    patch.viewEndDate = newEnd;
+  }
+
+  await ref.update(patch);
+}
+
+/**
+ * 대시보드의 "강제 마감" - 누른 시점(KST)을 그 종류(일반/과팅)의 종료 시각으로 바꿔서
+ * 지금 당장 닫히게 한다(조기마감). 시작 시각은 건드리지 않는다.
+ */
+export async function forceCloseReservation(
+  seasonId: string,
+  kind: ReservationKind,
+): Promise<void> {
+  const now = nowKST();
+  const ref = seasonsCollection().doc(seasonId);
+  if (kind === "general") {
+    await ref.update({ reservationEndDate: now });
+  } else {
+    await ref.update({ matchingReservationEndDate: now });
+  }
 }
 
 /**

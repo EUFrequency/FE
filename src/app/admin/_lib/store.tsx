@@ -20,7 +20,6 @@ type Action =
   | { type: "reservations/replaceAll"; payload: Reservation[] }
   | { type: "reservations/approve"; payload: { id: string } }
   | { type: "reservations/reject"; payload: { id: string } }
-  | { type: "reservations/pair"; payload: { idA: string; idB: string } }
   | { type: "reservations/unpair"; payload: { id: string } }
   | { type: "booths/replaceAll"; payload: AdminBooth[] }
   | { type: "booths/add"; payload: AdminBooth }
@@ -79,16 +78,6 @@ function reducer(state: State, action: Action): State {
         if (partnerId && r.id === partnerId) {
           return { ...r, pairedWith: null };
         }
-        return r;
-      });
-      return { ...state, reservations };
-    }
-
-    case "reservations/pair": {
-      const { idA, idB } = action.payload;
-      const reservations = state.reservations.map((r) => {
-        if (r.id === idA) return { ...r, status: "approved" as const, pairedWith: idB };
-        if (r.id === idB) return { ...r, status: "approved" as const, pairedWith: idA };
         return r;
       });
       return { ...state, reservations };

@@ -33,14 +33,15 @@ export async function rejectReservationAction(id: string): Promise<ActionResult>
   });
 }
 
-/** 대기중인 매칭 예약 둘을 짝지어 같은 테이블로 묶고 동시에 승인 */
+/** 확정된 매칭 예약 둘을 짝짓고, 그 주점 별칭 풀에서 고른(또는 새로 입력한) 별칭을 양쪽에 배정 */
 export async function pairReservationsAction(
   idA: string,
   idB: string,
+  alias: string,
 ): Promise<ActionResult> {
   return toActionResult(async () => {
     await requireAdmin();
-    await pairReservations(idA, idB);
+    await pairReservations(idA, idB, alias);
   });
 }
 

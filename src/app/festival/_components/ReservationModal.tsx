@@ -13,6 +13,7 @@ import {
   generalHeadcountRange,
   matchingHeadcountOptions,
 } from "@/app/admin/_lib/slots";
+import { resolveMinOrderAmount } from "@/app/admin/_lib/min-order";
 import type { Account, Season } from "@/app/admin/_lib/types";
 
 type Props = {
@@ -123,7 +124,8 @@ export function ReservationModal({
     ? form.headcount * MATCHING_FEE_PER_PERSON
     : 0;
   const grandTotal = menuTotal + matchingFee;
-  const meetsMinOrder = menuTotal >= booth.minOrder;
+  const minOrderAmount = resolveMinOrderAmount(booth.minOrderRules, form.headcount);
+  const meetsMinOrder = menuTotal >= minOrderAmount;
 
   const step1Valid =
     form.date &&
@@ -352,6 +354,7 @@ export function ReservationModal({
               toggleMatching={toggleMatching}
               setQty={setQty}
               menuTotal={menuTotal}
+              minOrderAmount={minOrderAmount}
               meetsMinOrder={meetsMinOrder}
               canMatch={canMatch}
               matchingDisabledReason={matchingDisabledReason}
@@ -366,6 +369,7 @@ export function ReservationModal({
               form={form}
               selectedDateLabel={selectedDateLabel}
               menuTotal={menuTotal}
+              minOrderAmount={minOrderAmount}
               matchingFee={matchingFee}
               grandTotal={grandTotal}
               copied={copied}
@@ -456,6 +460,7 @@ type Step1Props = {
   toggleMatching: () => void;
   setQty: (menuId: string, delta: number) => void;
   menuTotal: number;
+  minOrderAmount: number;
   meetsMinOrder: boolean;
   canMatch: boolean;
   matchingDisabledReason: string | null;
@@ -472,6 +477,7 @@ function Step1({
   toggleMatching,
   setQty,
   menuTotal,
+  minOrderAmount,
   meetsMinOrder,
   canMatch,
   matchingDisabledReason,
@@ -572,75 +578,10 @@ function Step1({
         </div>
       </label>
 
-      {/* 인원 및 과팅 */}
+      {/* 인원 및 과팅 - 과팅 신청 여부를 먼저 물어본 뒤 인원수를 고르게 해서, 인원수를
+          먼저 정했다가 과팅을 켜면서 선택지가 바뀌어 다시 골라야 하는 불편을 없앤다 */}
       <section>
         <SectionTitle>인원 및 과팅</SectionTitle>
-        <div className="mt-4">
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">
-            인원수
-            {form.matchingEnabled && (
-              <span className="ml-1 text-neutral-400 dark:text-neutral-500">
-                (과팅은 테이블 정원과 같은 인원만 가능)
-              </span>
-            )}
-          </div>
-          <div className="mt-2">
-            {form.matchingEnabled ? (
-              matchingSizes.length <= 1 ? (
-                <div className="inline-flex h-10 items-center rounded-xl border border-black/5 bg-neutral-100 px-4 text-sm font-medium text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200">
-                  {form.headcount}인 팀
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {matchingSizes.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setField("headcount", n)}
-                      className={`h-10 rounded-xl border px-4 text-sm font-medium transition ${
-                        form.headcount === n
-                          ? "border-amber-400/60 bg-amber-500/15 text-amber-600 dark:text-amber-300"
-                          : "border-black/5 bg-white text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200"
-                      }`}
-                    >
-                      {n}인
-                    </button>
-                  ))}
-                </div>
-              )
-            ) : generalRange ? (
-              <Stepper
-                value={form.headcount}
-                onChange={(v) =>
-                  setField(
-                    "headcount",
-                    Math.min(generalRange.max, Math.max(generalRange.min, v)),
-                  )
-                }
-                min={generalRange.min}
-                max={generalRange.max}
-              />
-            ) : (
-              <p className="text-xs text-red-500">
-                이 주점은 일반 예약을 받지 않습니다.
-              </p>
-            )}
-          </div>
-          {!form.matchingEnabled && generalRange && (
-            <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
-              {generalRange.min}~{generalRange.max}인 예약 가능
-            </p>
-          )}
-          {!form.matchingEnabled && matchingSizes.length > 0 && (
-            <p className="mt-1 text-[11px] text-purple-500 dark:text-purple-400">
-              💘 과팅 신청은{" "}
-              {matchingSizes.length === 1
-                ? `${matchingSizes[0]}인만`
-                : `${matchingSizes[0]}~${matchingSizes[matchingSizes.length - 1]}인까지`}{" "}
-              가능해요
-            </p>
-          )}
-        </div>
 
         <div className="mt-4 rounded-2xl border border-black/5 bg-white p-4 dark:border-white/5 dark:bg-white/[0.03]">
           <label
@@ -725,6 +666,73 @@ function Step1({
             </div>
           )}
         </div>
+
+        <div className="mt-4">
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+            인원수
+            {form.matchingEnabled && (
+              <span className="ml-1 text-neutral-400 dark:text-neutral-500">
+                (과팅은 테이블 정원과 같은 인원만 가능)
+              </span>
+            )}
+          </div>
+          <div className="mt-2">
+            {form.matchingEnabled ? (
+              matchingSizes.length <= 1 ? (
+                <div className="inline-flex h-10 items-center rounded-xl border border-black/5 bg-neutral-100 px-4 text-sm font-medium text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200">
+                  {form.headcount}인 팀
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {matchingSizes.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setField("headcount", n)}
+                      className={`h-10 rounded-xl border px-4 text-sm font-medium transition ${
+                        form.headcount === n
+                          ? "border-amber-400/60 bg-amber-500/15 text-amber-600 dark:text-amber-300"
+                          : "border-black/5 bg-white text-neutral-700 dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-200"
+                      }`}
+                    >
+                      {n}인
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : generalRange ? (
+              <Stepper
+                value={form.headcount}
+                onChange={(v) =>
+                  setField(
+                    "headcount",
+                    Math.min(generalRange.max, Math.max(generalRange.min, v)),
+                  )
+                }
+                min={generalRange.min}
+                max={generalRange.max}
+              />
+            ) : (
+              <p className="text-xs text-red-500">
+                이 주점은 일반 예약을 받지 않습니다.
+              </p>
+            )}
+          </div>
+          {!form.matchingEnabled && generalRange && (
+            <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+              {generalRange.min}~{generalRange.max}인 예약 가능
+            </p>
+          )}
+          {!form.matchingEnabled && matchingSizes.length > 0 && (
+            <p className="mt-1 text-[11px] text-purple-500 dark:text-purple-400">
+              💘 과팅 신청은{" "}
+              {matchingSizes.length === 1
+                ? `${matchingSizes[0]}인만`
+                : `${matchingSizes[0]}~${matchingSizes[matchingSizes.length - 1]}인까지`}{" "}
+              가능해요
+            </p>
+          )}
+        </div>
       </section>
 
       {/* 메뉴 선택 */}
@@ -734,7 +742,7 @@ function Step1({
           <span
             className={`text-xs ${meetsMinOrder ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-500 dark:text-neutral-400"}`}
           >
-            최소 {booth.minOrder.toLocaleString()}원
+            최소 {minOrderAmount.toLocaleString()}원
             {menuTotal > 0 && ` · 현재 ${menuTotal.toLocaleString()}원`}
           </span>
         </div>
@@ -787,6 +795,7 @@ type Step2Props = {
   form: Form;
   selectedDateLabel: string;
   menuTotal: number;
+  minOrderAmount: number;
   matchingFee: number;
   grandTotal: number;
   copied: boolean;
@@ -801,6 +810,7 @@ function Step2({
   form,
   selectedDateLabel,
   menuTotal,
+  minOrderAmount,
   matchingFee,
   grandTotal,
   copied,
@@ -929,7 +939,7 @@ function Step2({
         </div>
         <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-500">
           메뉴 합계: {menuTotal.toLocaleString()}원 (최소{" "}
-          {booth.minOrder.toLocaleString()}원)
+          {minOrderAmount.toLocaleString()}원)
         </div>
       </section>
 

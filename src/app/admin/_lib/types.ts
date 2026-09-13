@@ -3,6 +3,13 @@ export type LoginState = { error?: string };
 export type SeasonType = "festival" | "event";
 export type SeasonStatus = "upcoming" | "ongoing" | "ended";
 
+/**
+ * 시간이 붙는 필드(조회/일반예약/과팅예약)는 전부 KST 기준 "YYYY-MM-DDTHH:mm" 문자열.
+ * 시작 시각은 항상 값이 있고, 종료 시각만 null이 될 수 있는데 - 이건 관리자가 폼에서
+ * 직접 비워두는 게 아니라(폼은 항상 값을 요구함), 대시보드의 "강제 오픈"을 이미 지난
+ * 기간에 눌렀을 때만 자동으로 null(= "종료시까지", 무기한)이 된다. firestore-seasons.ts의
+ * forceOpenReservation/forceCloseReservation 참고.
+ */
 export type Season = {
   id: string;
   name: string;
@@ -10,33 +17,28 @@ export type Season = {
   /** startDate/endDate/earlyEndedAt로부터 항상 자동 계산됨 - 직접 수정하지 않음 */
   status: SeasonStatus;
   year: number;
-  /** 축제 진행 시작일 (YYYY-MM-DD) - 예약 폼의 방문 날짜 선택지가 이 구간에서 나옴 */
+  /** 축제 진행 시작일 (YYYY-MM-DD, 시간 없음) - 예약 폼의 방문 날짜 선택지가 이 구간에서 나옴 */
   startDate: string;
-  /** 축제 진행 종료일 (YYYY-MM-DD) */
+  /** 축제 진행 종료일 (YYYY-MM-DD, 시간 없음) */
   endDate: string;
-  /** 전체(일반) 예약 접수 시작일 (YYYY-MM-DD) */
+  /**
+   * 사용자가 주점 정보·메뉴를 조회할 수 있는 기간 시작. 일반/과팅 예약 기간을 항상
+   * 포함해야 함(조회가 안 되면 예약 폼(2페이지)까지 갈 방법이 없으므로) - 이 기간 밖이면
+   * /festival 페이지 전체가 잠기고 안내만 뜬다.
+   */
+  viewStartDate: string;
+  /** 조회 가능 기간 종료. null이면 무기한("종료시까지") */
+  viewEndDate: string | null;
+  /** 일반 예약 접수 시작 시각 */
   reservationStartDate: string;
-  /** 전체(일반) 예약 접수 마감일 (YYYY-MM-DD) */
-  reservationEndDate: string;
-  /** 과팅 예약 접수 시작일 (YYYY-MM-DD) - 보통 전체 예약 기간 안의 앞부분 */
+  /** 일반 예약 접수 마감 시각. null이면 무기한("종료시까지") */
+  reservationEndDate: string | null;
+  /** 과팅 예약 접수 시작 시각 - 일반 예약 기간 안에 있어야 함 */
   matchingReservationStartDate: string;
-  /** 과팅 예약 접수 마감일 (YYYY-MM-DD) */
-  matchingReservationEndDate: string;
+  /** 과팅 예약 접수 마감 시각. null이면 무기한("종료시까지") */
+  matchingReservationEndDate: string | null;
   /** 조기종료한 날짜(YYYY-MM-DD). 설정되면 이후 status는 무조건 ended로 고정됨 */
   earlyEndedAt: string | null;
-};
-
-export type ReservationSettingMode = "auto" | "open" | "closed";
-
-/**
- * 시스템 전체 예약 스위치. auto면 시즌의 날짜 기간을 따르고,
- * open/closed면 날짜와 무관하게 강제로 열거나 닫음(연장·조기마감용).
- */
-export type ReservationSettings = {
-  /** 전체(일반) 예약 */
-  general: ReservationSettingMode;
-  /** 과팅 예약 */
-  matching: ReservationSettingMode;
 };
 
 /** 테이블 종류(정원+용도)마다 허용하는 오버부킹 팀 수 (매칭은 성별별로 각각 적용) */
@@ -93,9 +95,9 @@ export type Reservation = {
   /** 과팅 신청 시 참석자별 학과. index 0 = 대표자 학과(= department와 동일) */
   participantDepartments?: string[];
   /**
-   * 과팅 신청자에게 배정된 별칭. 주점별 별칭 풀(boothAliases 컬렉션)에서
-   * 같은 주점 내 다른 유효 예약과 겹치지 않게 접수 시점에 하나 뽑아서 고정.
-   * 과팅 미신청이거나 풀이 비었거나 소진되면 null.
+   * 매칭 짝지어진 별칭. 예약 접수 시점이 아니라 관리자가 매칭 관리 탭에서 짝을
+   * 지어줄 때(pairReservations) 그 주점의 별칭 풀에서 골라 양쪽에 똑같이 배정한다
+   * (같은 주점/날짜/시간대 안에서 겹치지 않게). 아직 짝지어지지 않았으면 null.
    */
   assignedAlias?: string | null;
   /**
@@ -139,6 +141,18 @@ export type TimeSlot = {
   endTime: string; // "11:50"
 };
 
+/**
+ * 인원수 구간별 최소 주문금액 규칙 - "N인 이하면 X원 이상 주문".
+ * 여러 개를 인원수 오름차순으로 등록하며, 예약 인원이 맨 마지막(가장 큰) 규칙의
+ * maxHeadcount보다 많아도 그 규칙의 minAmount를 그대로 적용한다(catch-all) - min-order.ts 참고.
+ */
+export type MinOrderRule = {
+  /** 이 인원수 이하일 때 이 규칙이 적용됨 */
+  maxHeadcount: number;
+  /** 위 인원수 이하일 때 필요한 최소 주문 금액 */
+  minAmount: number;
+};
+
 export type AdminBooth = {
   id: string;
   /** 이 주점을 운영하는 학과/동아리 등 (배치도·공개 페이지 표시용) */
@@ -149,7 +163,7 @@ export type AdminBooth = {
   descriptionText: string;
   descriptionImages: string[]; // data URL 목록
   menus: MenuItem[];
-  minOrder: number;
+  minOrderRules: MinOrderRule[];
   tables: TableConfig[];
   /** 예약 화면에서 고를 수 있는 시간대 목록. 관리자가 주점마다 직접 설정 */
   timeSlots: TimeSlot[];
@@ -163,18 +177,15 @@ export type AdminBooth = {
 };
 
 /**
- * 주점별 별칭 풀 - 과팅 신청자에게 배정할 별칭 후보 목록.
+ * 주점별 별칭 풀 - 매칭(과팅) 짝을 지을 때 관리자가 고를 수 있는 별칭 후보 목록.
  * boothAliases 컬렉션에 주점 id를 문서 id로 1:1 저장하며, 주점 등록/수정 폼에서 관리한다.
+ * (어떤 별칭이 지금 쓰이고 있는지는 이 문서가 아니라 예약 데이터 자체에서 그때그때
+ * 계산함 - 같은 주점/날짜/시간대 안에서 승인된 예약들의 assignedAlias를 보면 됨)
  */
 export type BoothAliasPool = {
   boothId: string;
-  /** 배정 가능한 별칭 목록 (위에서부터 순서대로 배정됨) */
+  /** 배정 가능한 별칭 목록 (위에서부터 순서대로 보여줌) */
   aliases: string[];
-  /**
-   * 현재 유효한 예약이 물고 있는 별칭들. 예약 접수 시 여기에 추가하고 반려 시 제거해서,
-   * 배정할 때 예약 전체를 훑지 않고 이 문서 하나만 읽으면 되도록 함(읽기 비용 절약).
-   */
-  assigned: string[];
 };
 
 /** 입금 계좌 - 시스템 대표 계좌 1개(isDefault) + 주점별 개별 계좌들을 같은 테이블에서 관리 */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
 import {
   convertMatchingToGeneralAction,
@@ -9,7 +9,12 @@ import {
   rejectReservationAction,
   unpairReservationAction,
 } from "../../../_lib/reservation-actions";
-import { buildMatchingCancelMessage, buildMatchingConvertMessage } from "../../../_lib/messages";
+import { getBoothAliasPoolAction } from "../../../_lib/alias-actions";
+import {
+  buildMatchingCancelMessage,
+  buildMatchingConvertMessage,
+  buildMatchingPairedMessage,
+} from "../../../_lib/messages";
 import { MIN_GENERAL_HEADCOUNT, type Reservation } from "../../../_lib/types";
 import { Badge, Button, Checkbox, Input, Label, Select } from "../../ui";
 import { CopyButton } from "../../CopyButton";
@@ -40,6 +45,9 @@ export function MatchingTab() {
   const [error, setError] = useState<string | null>(null);
   const [convertTarget, setConvertTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
+  const [pairTarget, setPairTarget] = useState<{ male: Reservation; female: Reservation } | null>(
+    null,
+  );
 
   const confirmedMatching = useMemo(
     () => state.reservations.filter((r) => r.matching && r.status === "approved"),
@@ -156,23 +164,15 @@ export function MatchingTab() {
     }
   }
 
-  async function handlePair() {
+  function requestPair() {
     if (!canPair || !selectedMale || !selectedFemale) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await pairReservationsAction(selectedMale.id, selectedFemale.id);
-      if (!result.ok) throw new Error(result.error);
-      dispatch({
-        type: "reservations/pair",
-        payload: { idA: selectedMale.id, idB: selectedFemale.id },
-      });
-      clearSelection();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "짝짓기에 실패했습니다.");
-    } finally {
-      setBusy(false);
-    }
+    setPairTarget({ male: selectedMale, female: selectedFemale });
+  }
+
+  async function handlePaired() {
+    setPairTarget(null);
+    clearSelection();
+    await refreshAll();
   }
 
   async function handleConverted() {
@@ -254,7 +254,7 @@ export function MatchingTab() {
         >
           일반 예약으로 전환하기
         </Button>
-        <Button variant="primary" disabled={!canPair || busy} onClick={handlePair}>
+        <Button variant="primary" disabled={!canPair || busy} onClick={requestPair}>
           맺기
         </Button>
       </div>
@@ -297,6 +297,31 @@ export function MatchingTab() {
             reservation={cancelTarget}
             onDone={() => handleCancelled(cancelTarget.id)}
             onCancel={() => setCancelTarget(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal open={pairTarget !== null} onClose={() => setPairTarget(null)}>
+        {pairTarget && (
+          <PairModal
+            male={pairTarget.male}
+            female={pairTarget.female}
+            usedAliases={new Set(
+              state.reservations
+                .filter(
+                  (r) =>
+                    r.status === "approved" &&
+                    r.boothId === pairTarget.male.boothId &&
+                    r.date === pairTarget.male.date &&
+                    r.time === pairTarget.male.time &&
+                    r.id !== pairTarget.male.id &&
+                    r.id !== pairTarget.female.id &&
+                    !!r.assignedAlias,
+                )
+                .map((r) => r.assignedAlias as string),
+            )}
+            onDone={handlePaired}
+            onCancel={() => setPairTarget(null)}
           />
         )}
       </Modal>
@@ -532,6 +557,161 @@ function ConvertModal({
         </Button>
         <Button variant="primary" onClick={confirm} disabled={busy || !valid}>
           {busy ? "처리 중..." : "전환하기"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 매칭 짝을 맺을 때 별칭을 고르는 모달. 주점의 별칭 풀에서 고르거나(같은 날짜/시간대에
+ * 이미 쓰이는 건 제외) 새 별칭을 직접 입력할 수 있고, 입력한 새 별칭은 확정 시 풀에도
+ * 함께 추가된다. 남/여 두 예약에 항상 같은 별칭을 배정한다.
+ */
+function PairModal({
+  male,
+  female,
+  usedAliases,
+  onDone,
+  onCancel,
+}: {
+  male: Reservation;
+  female: Reservation;
+  /** 같은 주점/날짜/시간대에서 이미 다른 승인된 예약이 쓰고 있는 별칭들 */
+  usedAliases: Set<string>;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [poolAliases, setPoolAliases] = useState<string[]>([]);
+  const [poolLoading, setPoolLoading] = useState(true);
+  const [alias, setAlias] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getBoothAliasPoolAction(male.boothId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setPoolAliases(result.data);
+      setPoolLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [male.boothId]);
+
+  const availableSuggestions = poolAliases.filter((a) => !usedAliases.has(a));
+  const trimmedAlias = alias.trim();
+  const valid = trimmedAlias.length > 0 && !usedAliases.has(trimmedAlias);
+
+  async function confirm() {
+    if (!valid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await pairReservationsAction(male.id, female.id, trimmedAlias);
+      if (!result.ok) throw new Error(result.error);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "짝짓기에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        매칭 맺기 - 별칭 배정
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        두 팀에 똑같이 배정할 별칭을 고르거나 새로 입력해주세요. 확정 후 &quot;맺기&quot;를
+        눌러야 실제로 짝지어집니다.
+      </p>
+
+      <dl className="mt-4 grid grid-cols-2 gap-y-1.5 text-sm">
+        <dt className="text-neutral-500 dark:text-neutral-400">남성팀</dt>
+        <dd className="text-right text-neutral-900 dark:text-neutral-100">
+          {male.representativeName} · {male.headcount}명
+        </dd>
+        <dt className="text-neutral-500 dark:text-neutral-400">여성팀</dt>
+        <dd className="text-right text-neutral-900 dark:text-neutral-100">
+          {female.representativeName} · {female.headcount}명
+        </dd>
+        <dt className="text-neutral-500 dark:text-neutral-400">주점 · 일시</dt>
+        <dd className="text-right text-neutral-900 dark:text-neutral-100">
+          {male.boothName} · {male.date} {male.time}
+        </dd>
+      </dl>
+
+      <label className="mt-4 block">
+        <Label>별칭</Label>
+        <Input
+          value={alias}
+          onChange={(e) => setAlias(e.target.value)}
+          placeholder="예: 체리"
+          className="mt-1"
+        />
+        {trimmedAlias.length > 0 && usedAliases.has(trimmedAlias) && (
+          <p className="mt-1 text-xs text-red-500">
+            &quot;{trimmedAlias}&quot;은 같은 날짜·시간대에 이미 사용 중이에요.
+          </p>
+        )}
+      </label>
+
+      <div className="mt-2">
+        {poolLoading ? (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">별칭 풀 불러오는 중...</p>
+        ) : availableSuggestions.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {availableSuggestions.map((a) => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setAlias(a)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  alias === a
+                    ? "border-amber-400/60 bg-amber-500/15 text-amber-600 dark:text-amber-300"
+                    : "border-black/10 text-neutral-600 hover:bg-black/5 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+                }`}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            이 시간대에 바로 쓸 수 있는 풀 별칭이 없어요. 위에 새 별칭을 입력해주세요.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <CopyButton text={male.phone} label="남성팀 전화번호 복사" />
+        <CopyButton text={female.phone} label="여성팀 전화번호 복사" />
+      </div>
+
+      {valid && (
+        <div className="mt-3 space-y-2">
+          <CopyableMessage
+            label={male.representativeName}
+            text={buildMatchingPairedMessage(male, trimmedAlias)}
+          />
+          <CopyableMessage
+            label={female.representativeName}
+            text={buildMatchingPairedMessage(female, trimmedAlias)}
+          />
+        </div>
+      )}
+
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          취소
+        </Button>
+        <Button variant="primary" onClick={confirm} disabled={busy || !valid}>
+          {busy ? "처리 중..." : "맺기"}
         </Button>
       </div>
     </div>

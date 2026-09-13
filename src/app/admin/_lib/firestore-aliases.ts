@@ -19,10 +19,7 @@ export async function getBoothAliasPool(boothId: string): Promise<string[]> {
   return Array.isArray(aliases) ? (aliases as string[]) : [];
 }
 
-/**
- * 주점의 별칭 후보 목록을 저장(덮어쓰기). 빈 배열이면 문서를 삭제.
- * 이미 배정된 별칭(assigned)은 새 목록 안에 있는 것만 남긴다.
- */
+/** 주점의 별칭 후보 목록을 저장(덮어쓰기). 빈 배열이면 문서를 삭제. */
 export async function saveBoothAliasPool(
   boothId: string,
   aliases: string[],
@@ -33,10 +30,5 @@ export async function saveBoothAliasPool(
     await ref.delete();
     return;
   }
-  const snap = await ref.get();
-  const prevAssigned: string[] = Array.isArray(snap.data()?.assigned)
-    ? (snap.data()!.assigned as string[])
-    : [];
-  const assigned = prevAssigned.filter((a) => cleaned.includes(a));
-  await ref.set({ boothId, aliases: cleaned, assigned });
+  await ref.set({ boothId, aliases: cleaned });
 }

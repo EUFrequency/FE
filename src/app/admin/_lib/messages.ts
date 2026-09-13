@@ -51,6 +51,17 @@ export function buildMatchingCancelMessage(r: Reservation): string {
   ].join("\n");
 }
 
+/** 매칭 짝이 확정되고 별칭이 배정됐을 때 안내 */
+export function buildMatchingPairedMessage(r: Reservation, alias: string): string {
+  return [
+    `안녕하세요 ${r.representativeName}님, ${formatDateKorean(
+      r.date,
+    )} ${formatTimeWithParens(r.time)} 매칭이 성사되었습니다!`,
+    `별칭 : ${alias}`,
+    `현장에서 이 별칭으로 상대팀을 확인해주세요.`,
+  ].join("\n");
+}
+
 /** 매칭 예약을 일반 예약으로 전환 접수했을 때 안내 */
 export function buildMatchingConvertMessage(r: Reservation, newHeadcount: number): string {
   return [

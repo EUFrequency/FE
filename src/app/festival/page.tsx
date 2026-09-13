@@ -31,16 +31,18 @@ export async function generateMetadata(
 
 export default async function FestivalPage() {
   // 이미지는 여기서 미리 안 가져옴 - 주점 카드를 눌렀을 때만 그 주점 것만 불러옴
-  const [booths, { activeSeason, generalOpen, matchingOpen }, departments] = await Promise.all([
-    listBoothsLight().catch(() => []),
-    getFestivalData(),
-    getDepartments().catch(() => []),
-  ]);
+  const [booths, { activeSeason, viewOpen, generalOpen, matchingOpen }, departments] =
+    await Promise.all([
+      listBoothsLight().catch(() => []),
+      getFestivalData(),
+      getDepartments().catch(() => []),
+    ]);
 
   return (
     <FestivalClient
       booths={booths}
       season={activeSeason}
+      viewOpen={viewOpen}
       generalOpen={generalOpen}
       matchingOpen={matchingOpen}
       departments={departments}

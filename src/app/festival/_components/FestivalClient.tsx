@@ -9,6 +9,7 @@ import { SuccessDialog } from "./SuccessDialog";
 import { Modal } from "./Modal";
 import { getPublicBoothAction } from "../_lib/booth-actions";
 import { accentFor, withAccents, type FestivalBooth } from "../_lib/palette";
+import { formatPeriod } from "@/lib/kst";
 import type { Account, AdminBooth, Season } from "@/app/admin/_lib/types";
 
 type Flow = "closed" | "detail" | "reservation" | "success";
@@ -16,13 +17,16 @@ type Flow = "closed" | "detail" | "reservation" | "success";
 export function FestivalClient({
   booths,
   season,
+  viewOpen,
   generalOpen,
   matchingOpen,
   departments,
 }: {
   booths: AdminBooth[];
   season: Season | null;
-  /** 전체(일반) 예약 접수 중인지. false면 소개만 보이고 예약 버튼은 막힘 */
+  /** 주점 정보·메뉴를 조회할 수 있는 기간인지. false면 페이지 전체가 잠기고 안내만 보임 */
+  viewOpen: boolean;
+  /** 일반 예약 접수 중인지. false면 소개만 보이고 예약 버튼은 막힘 */
   generalOpen: boolean;
   /** 과팅 예약 접수 중인지. false면 예약 폼에서 과팅 신청 옵션이 막힘 */
   matchingOpen: boolean;
@@ -111,28 +115,36 @@ export function FestivalClient({
             축제편 주점 예약
           </div>
           {season && (
-            <div className="mt-5 inline-flex items-center gap-3 rounded-full border border-black/5 bg-white/70 px-4 py-2 text-xs text-neutral-600 shadow-sm backdrop-blur dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-300">
-              <span>📍 본관 앞 운동장</span>
-              <span className="h-3 w-px bg-neutral-300 dark:bg-neutral-700" />
-              <span>
-                🗓 {season.startDate} ~ {season.endDate}
-              </span>
+            <div className="mt-5 inline-flex flex-col items-center gap-1.5 rounded-2xl border border-black/5 bg-white/70 px-4 py-2.5 text-xs text-neutral-600 shadow-sm backdrop-blur dark:border-white/5 dark:bg-white/[0.04] dark:text-neutral-300">
+              <div className="flex items-center gap-3">
+                <span>📍 본관 앞 운동장</span>
+                <span className="h-3 w-px bg-neutral-300 dark:bg-neutral-700" />
+                <span>
+                  🗓 {season.startDate} ~ {season.endDate}
+                </span>
+              </div>
+              <div className="text-amber-600 dark:text-amber-400">
+                ⏰ 예약 {formatPeriod(season.reservationStartDate, season.reservationEndDate)}
+              </div>
             </div>
           )}
         </header>
 
         <div className="mt-8">
-          {season ? (
-            <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
-          ) : (
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-black/10 px-5 py-16 text-center text-sm text-neutral-500 dark:border-white/10 dark:text-neutral-400">
-              <span className="text-3xl opacity-60" aria-hidden>
-                🎪
-              </span>
+          {!season ? (
+            <LockedNotice icon="🎪">
               지금은 진행 중인 축제가 없습니다.
               <br />
               축제 기간에 다시 찾아와주세요.
-            </div>
+            </LockedNotice>
+          ) : !viewOpen ? (
+            <LockedNotice icon="🔒">
+              지금은 조회 기간이 아닙니다.
+              <br />
+              조회 기간: {formatPeriod(season.viewStartDate, season.viewEndDate)}
+            </LockedNotice>
+          ) : (
+            <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
           )}
         </div>
 
@@ -199,6 +211,17 @@ export function FestivalClient({
         />
       )}
     </main>
+  );
+}
+
+function LockedNotice({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-black/10 px-5 py-16 text-center text-sm text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+      <span className="text-3xl opacity-60" aria-hidden>
+        {icon}
+      </span>
+      {children}
+    </div>
   );
 }
 

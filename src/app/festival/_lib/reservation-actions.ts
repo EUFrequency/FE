@@ -10,6 +10,7 @@ import {
   type CreateReservationSlot,
 } from "@/app/admin/_lib/firestore-reservations";
 import { formatTimeSlot, resolveMatchingSlot } from "@/app/admin/_lib/slots";
+import { resolveMinOrderAmount } from "@/app/admin/_lib/min-order";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import {
   MAX_GENERAL_HEADCOUNT,
@@ -195,10 +196,11 @@ export async function submitReservationAction(
         error: "메뉴 정보가 최신이 아닙니다. 새로고침 후 다시 시도해주세요.",
       };
     }
-    if (recomputed.menuAmount < booth.minOrder) {
+    const minOrderAmount = resolveMinOrderAmount(booth.minOrderRules, input.headcount);
+    if (recomputed.menuAmount < minOrderAmount) {
       return {
         ok: false,
-        error: `최소 주문금액은 ${booth.minOrder.toLocaleString()}원입니다.`,
+        error: `${input.headcount}명 기준 최소 주문금액은 ${minOrderAmount.toLocaleString()}원입니다.`,
       };
     }
     const matchingFee = input.matching ? input.headcount * MATCHING_FEE_PER_PERSON : 0;

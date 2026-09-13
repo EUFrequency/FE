@@ -1,6 +1,7 @@
 "use client";
 
 import { matchingHeadcountOptions } from "@/app/admin/_lib/slots";
+import { lowestMinOrderAmount } from "@/app/admin/_lib/min-order";
 import type { FestivalBooth } from "../_lib/palette";
 
 type Props = {
@@ -70,7 +71,7 @@ export function BoothMap({ booths, onSelect }: Props) {
                   </span>
                   <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                     <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] text-neutral-500 dark:bg-white/5 dark:text-neutral-400">
-                      최소 {booth.minOrder.toLocaleString()}원
+                      최소 {lowestMinOrderAmount(booth.minOrderRules).toLocaleString()}원~
                     </span>
                     {canMatch && (
                       <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-600 dark:text-purple-400">
