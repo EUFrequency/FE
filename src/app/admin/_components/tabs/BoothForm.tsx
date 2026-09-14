@@ -120,8 +120,8 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
     const file = fileList?.[0];
     if (!file) return;
     // 메뉴 이미지는 소개 이미지보다 작게 표시되고, 최대 30개까지 붙을 수 있어(MAX_MENUS)
-    // 기본 해상도(960px)를 그대로 쓰면 Firestore 문서 1MB 제한에 쉽게 걸림 - 더 작게 압축
-    const url = await resizeImageFile(file, 640, 0.68);
+    // 소개 이미지 기본값보다도 더 작게 압축해서 Firestore 문서 1MB 제한에 여유를 둠
+    const url = await resizeImageFile(file, 480, 0.6);
     setMenus((prev) => prev.map((m) => (m.id === menuId ? { ...m, image: url } : m)));
   }
 
