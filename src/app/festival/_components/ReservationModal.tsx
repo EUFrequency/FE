@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BANKS, MATCHING_FEE_PER_PERSON } from "../data";
 import type { FestivalBooth } from "../_lib/palette";
 import { seasonDateOptions } from "../_lib/season-dates";
@@ -112,10 +112,37 @@ export function ReservationModal({
       form.headcount >= generalRange.min &&
       form.headcount <= generalRange.max;
 
+  // 1인 1개 필수 메뉴(차림비 등)는 인원수가 바뀔 때마다 그 수량으로 강제 고정 -
+  // 매칭이든 일반이든 이번 예약 건 자체의 인원수(form.headcount) 기준
+  useEffect(() => {
+    setForm((f) => {
+      let changed = false;
+      const quantities = { ...f.quantities };
+      for (const menu of booth.menus) {
+        if (menu.perPersonRequired && quantities[menu.id] !== f.headcount) {
+          quantities[menu.id] = f.headcount;
+          changed = true;
+        }
+      }
+      return changed ? { ...f, quantities } : f;
+    });
+  }, [form.headcount, booth.menus]);
+
   const menuTotal = useMemo(
     () =>
       booth.menus.reduce(
         (sum, m) => sum + (form.quantities[m.id] ?? 0) * m.price,
+        0,
+      ),
+    [booth.menus, form.quantities],
+  );
+  // 최소 주문 금액 충족 여부는 "최소 주문 금액에서 제외" 체크된 메뉴(차림비 등) 금액을
+  // 뺀 값으로 따진다 - 실제 결제 총액(menuTotal)에는 항상 그대로 포함됨
+  const minOrderQualifyingTotal = useMemo(
+    () =>
+      booth.menus.reduce(
+        (sum, m) =>
+          m.excludeFromMinOrder ? sum : sum + (form.quantities[m.id] ?? 0) * m.price,
         0,
       ),
     [booth.menus, form.quantities],
@@ -125,7 +152,7 @@ export function ReservationModal({
     : 0;
   const grandTotal = menuTotal + matchingFee;
   const minOrderAmount = resolveMinOrderAmount(booth.minOrderRules, form.headcount);
-  const meetsMinOrder = menuTotal >= minOrderAmount;
+  const meetsMinOrder = minOrderQualifyingTotal >= minOrderAmount;
 
   const step1Valid =
     form.date &&
@@ -353,7 +380,7 @@ export function ReservationModal({
               setField={setField}
               toggleMatching={toggleMatching}
               setQty={setQty}
-              menuTotal={menuTotal}
+              minOrderQualifyingTotal={minOrderQualifyingTotal}
               minOrderAmount={minOrderAmount}
               meetsMinOrder={meetsMinOrder}
               canMatch={canMatch}
@@ -459,7 +486,7 @@ type Step1Props = {
   setField: <K extends keyof Form>(k: K, v: Form[K]) => void;
   toggleMatching: () => void;
   setQty: (menuId: string, delta: number) => void;
-  menuTotal: number;
+  minOrderQualifyingTotal: number;
   minOrderAmount: number;
   meetsMinOrder: boolean;
   canMatch: boolean;
@@ -476,7 +503,7 @@ function Step1({
   setField,
   toggleMatching,
   setQty,
-  menuTotal,
+  minOrderQualifyingTotal,
   minOrderAmount,
   meetsMinOrder,
   canMatch,
@@ -743,7 +770,8 @@ function Step1({
             className={`text-xs ${meetsMinOrder ? "text-emerald-600 dark:text-emerald-400" : "text-neutral-500 dark:text-neutral-400"}`}
           >
             최소 {minOrderAmount.toLocaleString()}원
-            {menuTotal > 0 && ` · 현재 ${menuTotal.toLocaleString()}원`}
+            {minOrderQualifyingTotal > 0 &&
+              ` · 현재 ${minOrderQualifyingTotal.toLocaleString()}원`}
           </span>
         </div>
 
@@ -757,8 +785,15 @@ function Step1({
               <div className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-neutral-900 dark:text-neutral-50">
-                      {menu.name}
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-neutral-900 dark:text-neutral-50">
+                        {menu.name}
+                      </span>
+                      {menu.perPersonRequired && (
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          인원수만큼 필수
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 whitespace-pre-line text-xs text-neutral-500 dark:text-neutral-400">
                       {menu.description}
@@ -769,14 +804,23 @@ function Step1({
                   </div>
                 </div>
                 <div className="mt-3">
-                  <Stepper
-                    value={form.quantities[menu.id] ?? 0}
-                    onChange={(v) =>
-                      setQty(menu.id, v - (form.quantities[menu.id] ?? 0))
-                    }
-                    min={0}
-                    max={99}
-                  />
+                  {menu.perPersonRequired ? (
+                    <Stepper
+                      value={form.headcount}
+                      onChange={() => {}}
+                      min={form.headcount}
+                      max={form.headcount}
+                    />
+                  ) : (
+                    <Stepper
+                      value={form.quantities[menu.id] ?? 0}
+                      onChange={(v) =>
+                        setQty(menu.id, v - (form.quantities[menu.id] ?? 0))
+                      }
+                      min={0}
+                      max={99}
+                    />
+                  )}
                 </div>
               </div>
             </li>

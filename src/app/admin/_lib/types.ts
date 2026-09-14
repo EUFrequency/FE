@@ -93,6 +93,16 @@ export type Reservation = {
   tableAssignment?: TableUsage[];
   date: string;
   time: string;
+  /**
+   * time의 시작/종료 시각을 자정부터의 분(minute)으로 미리 변환해둔 값 - 서버가 접수
+   * 시점에 booth.timeSlots에서 계산해 채움(클라이언트 입력 아님). 주점마다 시간대를
+   * 자유롭게 등록할 수 있어서 문자열(time)만으로는 다른 주점끼리 시간이 겹치는지 비교하기
+   * 어려운데, 이 값으로 같은 전화번호가 다른 주점 예약과 시간이 겹치는지 확인한다
+   * (firestore-reservations.ts의 시간대 잠금 - reservationTimeLocks 컬렉션 참고).
+   * 옛날 예약 문서엔 없을 수 있음(undefined).
+   */
+  timeStartMin?: number;
+  timeEndMin?: number;
   /** 환불 등에 쓰일 대표 예약자 본인 계좌 정보 */
   bank: string;
   accountNumber: string;
@@ -130,6 +140,14 @@ export type MenuItem = {
   description: string;
   price: number;
   image: string; // data URL 또는 외부 이미지 URL
+  /** 차림비처럼 인원수만큼 무조건 시켜야 하는 메뉴면 true - 예약 화면에서 인원수만큼 자동 선택되고 수량을 바꿀 수 없음 */
+  perPersonRequired?: boolean;
+  /**
+   * true면 이 메뉴 금액은 최소 주문 금액 충족 여부를 따질 때 제외한다(다른 메뉴로 채워야 함) -
+   * 실제 결제 총액에는 항상 그대로 포함됨. perPersonRequired 메뉴(차림비 등)에서만 의미가
+   * 있고, 그 외에는 무시됨. 기본값(undefined)은 기존과 동일하게 포함.
+   */
+  excludeFromMinOrder?: boolean;
 };
 
 export type TableConfig = {

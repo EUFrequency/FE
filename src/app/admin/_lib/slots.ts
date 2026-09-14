@@ -12,6 +12,12 @@ export function formatTimeSlot(slot: TimeSlot): string {
   return `${slot.label} ${slot.startTime}~${slot.endTime}`;
 }
 
+/** "11:00" -> 660 (자정부터의 분) - 주점마다 다른 시간대를 같은 기준으로 비교하기 위함 */
+export function timeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map((v) => Number(v));
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+}
+
 /**
  * 정원 관리 슬롯 = (테이블 정원, 용도[, 성별]) 조합.
  * 매칭: `${capacity}-matching-${gender}` / 일반: `${capacity}-general`
@@ -41,8 +47,11 @@ export type SlotResolution =
 /**
  * 매칭 예약이 어느 테이블 슬롯에 들어가는지 계산.
  * "매칭 전용" 테이블의 정원은 테이블 전체(양 팀 합) 기준으로 등록됨
- * (예: 6인 매칭 테이블 = 3인 팀 : 3인 팀). 그래서 한 팀의 인원수는 테이블 정원의 절반이어야
- * 매칭됨(headcount * 2 === capacity). 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
+ * (예: 8인 매칭 테이블 = 최대 4인 팀 : 4인 팀). 한 팀의 인원수는 테이블 정원의 절반
+ * 이하면 되고(headcount * 2 <= capacity), 꼭 절반을 다 채우지 않아도 된다 - 예를 들어
+ * 8인 테이블에서도 3:3처럼 더 작은 팀이 앉고 남는 자리는 비워둘 수 있음. 후보가 여러
+ * 개면(예: 6인·8인 테이블이 둘 다 있을 때 3인 팀) 남는 자리가 가장 적은(가장 작은 정원)
+ * 테이블을 우선 배정한다. 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
  *
  * 일반 예약은 인원수 구간(밴드)으로 테이블 정원 하나에 배정되므로
  * resolveGeneralSlot()을 대신 사용한다 (아래).
@@ -59,11 +68,12 @@ export function resolveMatchingSlot(
   }
   if (!input.gender) return { ok: false, reason: "팀 성별을 선택해주세요." };
 
-  const usable = tables.filter((t) => t.count > 0);
-  // 테이블 정원(capacity)은 양 팀 합계라 내 팀 인원수의 2배여야 그 테이블에 배정됨
-  const table = usable.find(
-    (t) => t.forMatching && t.capacity === input.headcount * 2,
-  );
+  const usable = tables.filter((t) => t.forMatching && t.count > 0 && t.capacity % 2 === 0);
+  // 내 팀 인원수의 2배 이하로 들어갈 수 있는 테이블 중, 가장 여유가 적은(가장 작은 정원) 것을 고름
+  const candidates = usable
+    .filter((t) => t.capacity >= input.headcount * 2)
+    .sort((a, b) => a.capacity - b.capacity);
+  const table = candidates[0];
   if (!table) {
     const sizes = matchingHeadcountOptions(usable);
     return {
@@ -136,17 +146,18 @@ export function resolveGeneralSlot(
 
 /**
  * 매칭 예약에서 고를 수 있는 "팀 인원수" 목록 (오름차순).
- * 매칭 전용 테이블의 정원은 양 팀 합계라서 절반이 실제 팀 인원수 (예: 6인 테이블 → 3인 팀).
- * 홀수 정원(반으로 못 나눔)은 잘못 등록된 것으로 보고 제외.
+ * 매칭 전용 테이블의 정원은 양 팀 합계라서, 정원의 절반 이하 인원이면 어떤 크기든
+ * 그 테이블에 앉을 수 있다 (예: 8인 테이블 → 1~4인 팀 전부 가능, 3:3처럼 남는 자리를
+ * 비워둬도 됨 - resolveMatchingSlot 참고). 홀수 정원(반으로 못 나눔)은 잘못 등록된 것으로
+ * 보고 제외.
  */
 export function matchingHeadcountOptions(tables: TableConfig[]): number[] {
-  return Array.from(
-    new Set(
-      tables
-        .filter((t) => t.forMatching && t.count > 0 && t.capacity % 2 === 0)
-        .map((t) => t.capacity / 2),
-    ),
-  ).sort((a, b) => a - b);
+  const usable = tables.filter((t) => t.forMatching && t.count > 0 && t.capacity % 2 === 0);
+  const options = new Set<number>();
+  for (const t of usable) {
+    for (let size = 1; size <= t.capacity / 2; size++) options.add(size);
+  }
+  return Array.from(options).sort((a, b) => a - b);
 }
 
 /**

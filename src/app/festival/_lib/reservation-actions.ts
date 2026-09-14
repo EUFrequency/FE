@@ -9,7 +9,7 @@ import {
   ReservationBlockedError,
   type CreateReservationSlot,
 } from "@/app/admin/_lib/firestore-reservations";
-import { formatTimeSlot, resolveMatchingSlot } from "@/app/admin/_lib/slots";
+import { formatTimeSlot, resolveMatchingSlot, timeToMinutes } from "@/app/admin/_lib/slots";
 import { resolveMinOrderAmount } from "@/app/admin/_lib/min-order";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import {
@@ -26,7 +26,14 @@ import { BANKS, MATCHING_FEE_PER_PERSON } from "../data";
 
 export type SubmitReservationInput = Omit<
   Reservation,
-  "id" | "status" | "createdAt" | "assignedAlias" | "tableCapacity" | "tableAssignment"
+  | "id"
+  | "status"
+  | "createdAt"
+  | "assignedAlias"
+  | "tableCapacity"
+  | "tableAssignment"
+  | "timeStartMin"
+  | "timeEndMin"
 >;
 
 export type SubmitReservationResult =
@@ -44,35 +51,57 @@ function isNonEmptyText(v: unknown, maxLen = MAX_TEXT_LEN): v is string {
  * 절대 신뢰하지 않고 주점의 현재 메뉴 가격으로 서버에서 다시 계산한다.
  * (클라이언트가 금액을 조작해서 보내는 걸 막기 위함 - 입금 확인은 결국 이 금액 기준으로 함)
  * 메뉴가 사라졌거나(이름 불일치) 수량이 이상하면 null.
+ *
+ * 1인 1개 필수 메뉴(차림비 등)는 클라이언트가 보낸 수량을 무시하고 이 예약 건의
+ * headcount로 강제 덮어쓴다 - 화면에서 수량을 못 바꾸게 막아뒀어도 요청을 직접 조작해서
+ * 수량을 줄이거나 아예 빼고 보낼 수 있으므로, 누락돼 있어도 여기서 다시 채워 넣는다.
  */
 function recomputeOrder(
   booth: AdminBooth,
   items: ReservationOrderItem[],
-): { orderItems: ReservationOrderItem[]; menuAmount: number } | null {
+  headcount: number,
+): {
+  orderItems: ReservationOrderItem[];
+  menuAmount: number;
+  /** 최소 주문 금액 충족 여부 판정용 - excludeFromMinOrder 메뉴 금액은 뺀 값. menuAmount(실 결제 총액)와는 별개 */
+  minOrderQualifyingAmount: number;
+} | null {
   // 실제 폼은 주점 메뉴 하나당 최대 한 줄만 만들어서 보내므로(중복 없음), 그보다 긴
   // 배열이나 같은 메뉴명 중복은 위조된 요청으로 보고 거부한다 - 그렇지 않으면 누구나
   // 인증 없이 이 공개 폼에 수만 개짜리 orderItems 배열을 보내 예약 문서를 비정상적으로
   // 부풀리거나(문서 용량/쓰기 비용 낭비) 처리 시간을 늘릴 수 있다.
-  if (!Array.isArray(items) || items.length === 0 || items.length > booth.menus.length) {
+  if (!Array.isArray(items) || items.length > booth.menus.length) {
     return null;
   }
   const menuByName = new Map(booth.menus.map((m) => [m.name, m]));
-  const orderItems: ReservationOrderItem[] = [];
-  const seen = new Set<string>();
-  let menuAmount = 0;
+  const quantityByName = new Map<string, number>();
 
   for (const item of items) {
     if (!item || typeof item.menuName !== "string") return null;
-    if (seen.has(item.menuName)) return null;
-    seen.add(item.menuName);
+    if (quantityByName.has(item.menuName)) return null;
     const menu = menuByName.get(item.menuName);
     if (!menu) return null;
     const quantity = Math.trunc(Number(item.quantity));
     if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 999) return null;
-    menuAmount += menu.price * quantity;
+    quantityByName.set(item.menuName, quantity);
+  }
+
+  for (const menu of booth.menus) {
+    if (menu.perPersonRequired) quantityByName.set(menu.name, headcount);
+  }
+  if (quantityByName.size === 0) return null;
+
+  const orderItems: ReservationOrderItem[] = [];
+  let menuAmount = 0;
+  let minOrderQualifyingAmount = 0;
+  for (const [menuName, quantity] of quantityByName) {
+    const menu = menuByName.get(menuName)!;
+    const amount = menu.price * quantity;
+    menuAmount += amount;
+    if (!menu.excludeFromMinOrder) minOrderQualifyingAmount += amount;
     orderItems.push({ menuName: menu.name, unitPrice: menu.price, quantity });
   }
-  return { orderItems, menuAmount };
+  return { orderItems, menuAmount, minOrderQualifyingAmount };
 }
 
 /** 공개 예약 폼에서 호출 - 관리자 인증이 필요 없음. 클라이언트 값은 하나도 그대로 믿지 않음 */
@@ -144,24 +173,31 @@ export async function submitReservationAction(
       return { ok: false, error: "축제 기간 중의 날짜를 선택해주세요." };
     }
 
-    // 3) 전화번호 중복 - 같은 날짜·시간대에만 적용 (트랜잭션에서도 재확인하지만 여기서 먼저 친절하게)
-    if (await hasReservationForPhone(phone, input.date, input.time)) {
+    // 3) 주점 확인 + 시간대 확인 - 뒤에서 전화번호 겹침 확인에 이 시간대의 시작/종료
+    //    시각(분 단위)이 필요해서 먼저 함
+    const booth = await getBoothLight(input.boothId);
+    if (!booth) return { ok: false, error: "주점 정보를 찾을 수 없습니다." };
+    const matchedTimeSlot = booth.timeSlots.find((s) => formatTimeSlot(s) === input.time);
+    if (!matchedTimeSlot) {
+      return { ok: false, error: "선택할 수 없는 시간입니다." };
+    }
+    const timeStartMin = timeToMinutes(matchedTimeSlot.startTime);
+    const timeEndMin = timeToMinutes(matchedTimeSlot.endTime);
+
+    // 4) 전화번호 중복 - 같은 날짜에 시간이 겹치면(다른 주점 포함) 적용 (트랜잭션에서도
+    //    재확인하지만 여기서 먼저 친절하게) - 현실적으로 겹치는 시간에 두 주점을 동시에
+    //    이용할 수 없기 때문에 주점이 달라도 막음
+    if (await hasReservationForPhone(phone, input.date, timeStartMin, timeEndMin)) {
       return {
         ok: false,
         error:
-          "이미 같은 날짜·시간대에 예약하신 전화번호입니다. 한 번호로 같은 시간대엔 한 건만 예약할 수 있습니다.",
+          "이미 같은 날짜·시간대(다른 주점 포함)에 예약하신 전화번호입니다. 겹치는 시간대엔 한 건만 예약할 수 있습니다.",
       };
     }
 
-    // 4) 주점 확인 + 정원 슬롯 계산
     //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나(오버부킹 포함).
     //    일반이면 인원수 구간(밴드)에 맞는 테이블 정원 하나(오버부킹 없음) - 실제 배정은
     //    createReservation 트랜잭션에서 현재 정원 현황을 보고 계산한다 (slots.ts의 resolveGeneralSlot).
-    const booth = await getBoothLight(input.boothId);
-    if (!booth) return { ok: false, error: "주점 정보를 찾을 수 없습니다." };
-    if (!booth.timeSlots.some((s) => formatTimeSlot(s) === input.time)) {
-      return { ok: false, error: "선택할 수 없는 시간입니다." };
-    }
 
     let slot: CreateReservationSlot;
     if (input.matching) {
@@ -194,7 +230,8 @@ export async function submitReservationAction(
     }
 
     // 5) 주문 금액은 클라이언트를 안 믿고 주점의 현재 메뉴 가격으로 다시 계산
-    const recomputed = recomputeOrder(booth, input.orderItems);
+    //    (1인 1개 필수 메뉴는 headcount로 강제 - recomputeOrder 참고)
+    const recomputed = recomputeOrder(booth, input.orderItems, input.headcount);
     if (!recomputed) {
       return {
         ok: false,
@@ -202,7 +239,7 @@ export async function submitReservationAction(
       };
     }
     const minOrderAmount = resolveMinOrderAmount(booth.minOrderRules, input.headcount);
-    if (recomputed.menuAmount < minOrderAmount) {
+    if (recomputed.minOrderQualifyingAmount < minOrderAmount) {
       return {
         ok: false,
         error: `${input.headcount}명 기준 최소 주문금액은 ${minOrderAmount.toLocaleString()}원입니다.`,
@@ -219,6 +256,8 @@ export async function submitReservationAction(
         menuAmount: recomputed.menuAmount,
         matchingFee,
         totalAmount,
+        timeStartMin,
+        timeEndMin,
       },
       slot,
     );

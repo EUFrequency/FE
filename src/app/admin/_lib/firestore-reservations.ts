@@ -7,18 +7,27 @@ import {
   type ReservationStatus,
   type TableConfig,
   type TableUsage,
+  type TimeSlot,
 } from "./types";
 import { deleteBoothInventory, slotRef } from "./firestore-inventory";
 import {
   canApproveReservation,
+  formatTimeSlot,
   reservationSlotKeys,
   resolveGeneralSlot,
+  timeToMinutes,
 } from "./slots";
 
 const COLLECTION = "reservations";
 const BOOTHS_COLLECTION = "booths";
 const ALIASES_COLLECTION = "boothAliases";
-const PHONES_COLLECTION = "reservationPhones";
+const TIME_LOCKS_COLLECTION = "reservationTimeLocks";
+/**
+ * 시간대 겹침을 판정하는 눈금 단위(분) - 이 단위로 하루를 잘라 각 조각을 문서 하나로 잠근다.
+ * 작을수록 정확하지만 예약 하나당 문서 쓰기 수가 늘어남 - 5분이면 50~90분짜리 시간대 하나에
+ * 보통 10~18개 정도.
+ */
+const TIME_LOCK_BUCKET_MINUTES = 5;
 
 export class ApprovalBlockedError extends Error {}
 
@@ -32,12 +41,28 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
- * 전화번호 중복은 "같은 날짜 + 같은 시간대"에만 적용 - 주점이 달라도 같은 시간대면 막고,
- * 날짜나 시간대가 다르면(다른 회차) 같은 번호로 또 예약할 수 있음.
+ * 전화번호 중복은 "같은 날짜 + 시간이 겹치면" 적용 - 주점이 달라도 시간이 겹치면 막고,
+ * 시간이 겹치지 않으면(다른 회차, 다른 주점이어도) 같은 번호로 또 예약할 수 있음.
+ * 현실적으로 한 사람이 겹치는 시간에 두 주점을 동시에 이용할 수 없기 때문.
+ *
+ * 주점마다 시간대(TimeSlot)를 자유롭게 등록할 수 있어서 "시간 문자열이 정확히 같은지"로는
+ * 판정할 수 없다(예: A 주점 1부 11:00~11:50, B 주점 1부 11:20~12:10처럼 라벨은 같아도
+ * 실제 시간은 다를 수 있고, 겹치는 구간만 있는 경우도 있음) - 그래서 하루를
+ * TIME_LOCK_BUCKET_MINUTES 단위로 잘라 각 조각을 "전화번호+날짜+조각" 문서로 잠근다.
+ * 겹치는 시간대끼리는 반드시 같은 조각을 하나 이상 공유하므로, 그 조각 문서가 이미
+ * 존재하면(다른 예약이 먼저 잠갔으면) 막고, 없으면 이번 예약이 필요한 조각을 전부 잠근다.
  */
-function phoneMarkerRef(phone: string, date: string, time: string) {
-  const key = `${normalizePhone(phone)}|${date}|${time}`;
-  return getAdminDb().collection(PHONES_COLLECTION).doc(key);
+function timeLockBucketRange(startMin: number, endMin: number): number[] {
+  const start = Math.max(0, Math.floor(startMin / TIME_LOCK_BUCKET_MINUTES));
+  const end = Math.max(start, Math.ceil(endMin / TIME_LOCK_BUCKET_MINUTES));
+  const buckets: number[] = [];
+  for (let b = start; b < end; b++) buckets.push(b);
+  return buckets;
+}
+
+function timeLockRef(phone: string, date: string, bucket: number) {
+  const key = `${normalizePhone(phone)}|${date}|${bucket}`;
+  return getAdminDb().collection(TIME_LOCKS_COLLECTION).doc(key);
 }
 
 function toIso(v: unknown): string {
@@ -80,13 +105,13 @@ async function deleteAllDocsInBatches(collectionName: string): Promise<void> {
 }
 
 /**
- * 모든 예약 내역(대기·승인·반려 가리지 않고 전부)과 그에 딸린 상태(전화번호 중복 마커,
+ * 모든 예약 내역(대기·승인·반려 가리지 않고 전부)과 그에 딸린 상태(시간대 잠금,
  * 주점별 정원 슬롯 카운터)를 완전히 초기화한다 - 되돌릴 수 없음.
  * 별칭 풀(boothAliases)은 예약이 아니라 관리자가 등록해둔 설정이라 건드리지 않는다.
  */
 export async function resetAllReservations(): Promise<void> {
   await deleteAllDocsInBatches(COLLECTION);
-  await deleteAllDocsInBatches(PHONES_COLLECTION);
+  await deleteAllDocsInBatches(TIME_LOCKS_COLLECTION);
 
   const boothsSnap = await getAdminDb().collection(BOOTHS_COLLECTION).get();
   for (const boothDoc of boothsSnap.docs) {
@@ -94,14 +119,20 @@ export async function resetAllReservations(): Promise<void> {
   }
 }
 
-/** 이 전화번호로 같은 날짜·시간대에 이미 접수된(반려되지 않은) 예약이 있는지 */
+/**
+ * 이 전화번호로 같은 날짜에 시간이 겹치는(반려되지 않은) 예약이 이미 있는지 - 제출 전
+ * 미리 보여주기 위한 빠른 확인용(트랜잭션 밖이라 완벽히 원자적이지는 않음, 최종 확인은
+ * createReservation의 트랜잭션에서 다시 함).
+ */
 export async function hasReservationForPhone(
   phone: string,
   date: string,
-  time: string,
+  startMin: number,
+  endMin: number,
 ): Promise<boolean> {
-  const snap = await phoneMarkerRef(phone, date, time).get();
-  return snap.exists;
+  const buckets = timeLockBucketRange(startMin, endMin);
+  const snaps = await Promise.all(buckets.map((b) => timeLockRef(phone, date, b).get()));
+  return snaps.some((s) => s.exists);
 }
 
 export async function setReservationStatus(
@@ -194,8 +225,15 @@ export async function setReservationStatus(
     for (const s of slotDecrements) {
       tx.set(s.ref, { active: s.newActive }, { merge: true });
     }
-    if (data.phone && data.date && data.time) {
-      tx.delete(phoneMarkerRef(data.phone, data.date, data.time));
+    if (
+      data.phone &&
+      data.date &&
+      typeof data.timeStartMin === "number" &&
+      typeof data.timeEndMin === "number"
+    ) {
+      for (const bucket of timeLockBucketRange(data.timeStartMin, data.timeEndMin)) {
+        tx.delete(timeLockRef(data.phone, data.date, bucket));
+      }
     }
   });
 }
@@ -344,7 +382,22 @@ export async function convertMatchingToGeneral(
   }
 
   const boothSnap = await getAdminDb().collection(BOOTHS_COLLECTION).doc(data.boothId).get();
-  const tables = (boothSnap.data()?.tables as TableConfig[] | undefined) ?? [];
+  const boothData = boothSnap.data();
+  const tables = (boothData?.tables as TableConfig[] | undefined) ?? [];
+
+  // 옛날 예약엔 timeStartMin/timeEndMin이 없을 수 있어서(이 기능 도입 전 데이터) 없으면
+  // 주점의 현재 시간대 설정에서 같은 문자열(time)을 찾아 다시 계산함
+  let timeStartMin = data.timeStartMin;
+  let timeEndMin = data.timeEndMin;
+  if (typeof timeStartMin !== "number" || typeof timeEndMin !== "number") {
+    const timeSlots = (boothData?.timeSlots as TimeSlot[] | undefined) ?? [];
+    const matched = timeSlots.find((s) => formatTimeSlot(s) === data.time);
+    if (!matched) {
+      throw new Error("예약 시간 정보를 다시 계산할 수 없습니다. 주점 시간대 설정을 확인해주세요.");
+    }
+    timeStartMin = timeToMinutes(matched.startTime);
+    timeEndMin = timeToMinutes(matched.endTime);
+  }
 
   await setReservationStatus(reservationId, "rejected");
   if (data.pairedWith) {
@@ -361,6 +414,8 @@ export async function convertMatchingToGeneral(
       headcount: newHeadcount,
       date: data.date,
       time: data.time,
+      timeStartMin,
+      timeEndMin,
       bank: data.bank,
       accountNumber: data.accountNumber,
       matching: false,
@@ -392,7 +447,8 @@ export class ReservationBlockedError extends Error {
 /**
  * 공개 축제 페이지(/festival)에서 예약 신청 시 호출 - 인증 불필요.
  * 트랜잭션 안에서:
- *  1) 같은 날짜·시간대 전화번호 중복 확인
+ *  1) 같은 전화번호로 같은 날짜에 시간이 겹치는 예약이 있는지(주점 무관) 확인 - 시간대
+ *     잠금(timeLockBucketRange) 참고
  *  2) 매칭이면 정원 슬롯 하나(오버부킹 포함 limit), 일반이면 인원수 구간(밴드)에 맞는
  *     테이블 정원 하나(오버부킹 없음)를 찾아 정원 초과 여부를 확인하고 슬롯을 +1
  * status는 항상 "pending"으로 시작하고, 별칭(assignedAlias)은 아직 없음(null) -
@@ -412,16 +468,20 @@ export async function createReservation(
   assignedAlias: string | null;
   waitingNumber: number | null;
 }> {
+  if (typeof input.timeStartMin !== "number" || typeof input.timeEndMin !== "number") {
+    throw new Error("예약 시간 정보가 올바르지 않습니다.");
+  }
   const db = getAdminDb();
   const reservationRef = reservationsCollection().doc();
-  const pRef = phoneMarkerRef(input.phone, input.date, input.time);
+  const lockBuckets = timeLockBucketRange(input.timeStartMin, input.timeEndMin);
+  const lockRefs = lockBuckets.map((b) => timeLockRef(input.phone, input.date, b));
 
   return db.runTransaction(async (tx) => {
     // --- 읽기 먼저 ---
-    const phoneSnap = await tx.get(pRef);
-    if (phoneSnap.exists) {
+    const lockSnaps = await Promise.all(lockRefs.map((ref) => tx.get(ref)));
+    if (lockSnaps.some((s) => s.exists)) {
       throw new ReservationBlockedError(
-        "이미 같은 날짜·시간대에 예약하신 전화번호입니다. 한 번호로 같은 시간대엔 한 건만 예약할 수 있습니다.",
+        "이미 같은 날짜·시간대(다른 주점 포함)에 예약하신 전화번호입니다. 겹치는 시간대엔 한 건만 예약할 수 있습니다.",
         "phone",
       );
     }
@@ -487,13 +547,14 @@ export async function createReservation(
     for (const w of slotWrites) {
       tx.set(w.ref, { active: w.active }, { merge: true });
     }
-    tx.set(pRef, {
-      phone: input.phone,
-      boothId: input.boothId,
-      date: input.date,
-      time: input.time,
-      createdAt: FieldValue.serverTimestamp(),
-    });
+    for (const ref of lockRefs) {
+      tx.set(ref, {
+        phone: input.phone,
+        boothId: input.boothId,
+        date: input.date,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
     return { zone, assignedAlias, waitingNumber };
   });
 }

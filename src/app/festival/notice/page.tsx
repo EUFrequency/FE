@@ -165,10 +165,10 @@ export default async function FestivalNoticePage() {
               <li>
                 같은 전화번호로는{" "}
                 <b className="font-semibold text-neutral-800 dark:text-neutral-100">
-                  같은 날짜·시간대에 한 건만
+                  같은 날짜에 시간이 겹치는 예약은 한 건만
                 </b>{" "}
-                예약할 수 있어요. 날짜나 시간대가 다르면 같은 번호로 또 예약하실 수
-                있습니다.
+                가능해요(다른 주점이어도 마찬가지입니다). 시간대가 겹치지 않으면 같은
+                번호로 또 예약하실 수 있습니다.
               </li>
               <li>남겨주신 전화번호는 예약 확인·환불 안내 목적으로만 사용됩니다.</li>
             </ul>

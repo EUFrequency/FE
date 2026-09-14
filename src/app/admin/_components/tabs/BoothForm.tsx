@@ -7,7 +7,7 @@ import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
 import { MAX_GENERAL_HEADCOUNT } from "../../_lib/types";
 import type { AdminBooth, MenuItem, MinOrderRule, TableConfig, TimeSlot } from "../../_lib/types";
 import { AccountManager } from "../AccountManager";
-import { Button, Input, Label, Textarea } from "../ui";
+import { Button, Checkbox, Input, Label, Textarea } from "../ui";
 
 const MAX_DESCRIPTION_IMAGES = 5;
 const MAX_MENUS = 30;
@@ -348,6 +348,39 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
               >
                 ✕
               </button>
+              <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-5">
+                <Checkbox
+                  checked={!!menu.perPersonRequired}
+                  onChange={() =>
+                    setMenus((prev) =>
+                      prev.map((m) =>
+                        m.id === menu.id
+                          ? { ...m, perPersonRequired: !m.perPersonRequired }
+                          : m,
+                      ),
+                    )
+                  }
+                />
+                1인 1개 필수 메뉴 (예: 차림비) - 예약 화면에서 인원수만큼 자동으로 선택되고 수량을 바꿀 수 없게 돼요
+              </label>
+              {menu.perPersonRequired && (
+                <label className="flex items-center gap-2 pl-7 text-xs text-neutral-500 dark:text-neutral-400 sm:col-span-5">
+                  <Checkbox
+                    checked={!menu.excludeFromMinOrder}
+                    onChange={() =>
+                      setMenus((prev) =>
+                        prev.map((m) =>
+                          m.id === menu.id
+                            ? { ...m, excludeFromMinOrder: !m.excludeFromMinOrder }
+                            : m,
+                        ),
+                      )
+                    }
+                  />
+                  최소 주문 금액 계산에 포함 - 끄면 이 메뉴 금액은 빼고, 다른 메뉴로 최소
+                  주문 금액을 채워야 해요 (결제 총액에는 항상 그대로 포함돼요)
+                </label>
+              )}
             </div>
           ))}
         </div>
