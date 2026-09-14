@@ -5,13 +5,30 @@ import { useAdminStore } from "../../../_lib/store";
 import { rebuildInventoryAction } from "../../../_lib/reservation-actions";
 import { convertMatchingTableAction } from "../../../_lib/booth-actions";
 import { getOverbookLimitAction } from "../../../_lib/settings-actions";
-import { computeMatchingTableLeftover, summarizeBoothSlots } from "../../../_lib/slots";
-import { DEFAULT_OVERBOOK_LIMIT } from "../../../_lib/types";
+import {
+  computeMatchingTableLeftover,
+  computeMatchingTableSafeLeftover,
+  summarizeBoothSlots,
+} from "../../../_lib/slots";
+import { DEFAULT_OVERBOOK_LIMIT, type Reservation } from "../../../_lib/types";
 import { Badge, Button, Card } from "../../ui";
 
 const GENDER_LABEL = { male: "남", female: "여" } as const;
 
-export function CapacityGauge() {
+/** "2026-09-30" -> "9월 30일" */
+function formatDateLabel(date: string): string {
+  const [, m, d] = date.split("-");
+  if (!m || !d) return date;
+  return `${Number(m)}월 ${Number(d)}일`;
+}
+
+type Props = {
+  boothFilter: string;
+  dateFilter: string;
+  timeFilter: string;
+};
+
+export function CapacityGauge({ boothFilter, dateFilter, timeFilter }: Props) {
   const { state, dispatch } = useAdminStore();
   const [rebuilding, setRebuilding] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -29,18 +46,49 @@ export function CapacityGauge() {
     };
   }, []);
 
+  // 부스별로, 다시 날짜·시간대(부)별로 나눠서 보여줌 - 같은 테이블이라도 회차가 다르면
+  // 완전히 다른 좌석 배정이라 뭉뚱그려 보여주면 헷갈림
   const rows = useMemo(() => {
     return state.booths
+      .filter((booth) => boothFilter === "all" || booth.id === boothFilter)
       .map((booth) => {
-        const rs = state.reservations.filter((r) => r.boothId === booth.id);
-        const slots = summarizeBoothSlots(booth.tables, rs, overbookLimit);
-        const leftovers = computeMatchingTableLeftover(booth.tables, rs).filter(
+        const rs = state.reservations.filter(
+          (r) =>
+            r.boothId === booth.id &&
+            (dateFilter === "all" || r.date === dateFilter) &&
+            (timeFilter === "all" || r.time === timeFilter),
+        );
+
+        const groups = new Map<string, { date: string; time: string; reservations: Reservation[] }>();
+        for (const r of rs) {
+          const key = `${r.date}|${r.time}`;
+          if (!groups.has(key)) groups.set(key, { date: r.date, time: r.time, reservations: [] });
+          groups.get(key)!.reservations.push(r);
+        }
+        const sections = Array.from(groups.values())
+          .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+          .map((g) => ({
+            date: g.date,
+            time: g.time,
+            slots: summarizeBoothSlots(booth.tables, g.reservations, g.date, g.time, overbookLimit),
+            sessionLeftovers: computeMatchingTableLeftover(
+              booth.tables,
+              g.reservations,
+              g.date,
+              g.time,
+            ).filter((l) => l.count > 0),
+          }))
+          .filter((sec) => sec.slots.length > 0);
+
+        // 전환 가능 여부는 회차 하나가 아니라 전체 회차를 통틀어 안전한 만큼만 -
+        // computeMatchingTableSafeLeftover 참고
+        const leftovers = computeMatchingTableSafeLeftover(booth.tables, rs).filter(
           (l) => l.leftover > 0 || l.pendingCount > 0,
         );
-        return { booth, slots, leftovers };
+        return { booth, sections, leftovers };
       })
-      .filter((b) => b.slots.length > 0);
-  }, [state.booths, state.reservations, overbookLimit]);
+      .filter((b) => b.sections.length > 0);
+  }, [state.booths, state.reservations, overbookLimit, boothFilter, dateFilter, timeFilter]);
 
   async function handleRebuild() {
     setMsg(null);
@@ -56,7 +104,7 @@ export function CapacityGauge() {
   async function handleConvert(boothId: string, tableId: string, capacity: number, amount: number) {
     if (
       !confirm(
-        `${capacity}인 매칭 테이블 중 남는 ${amount}개를 일반 테이블로 전환할까요? 이후에는 매칭 예약을 받지 않습니다.`,
+        `${capacity}인 매칭 테이블 중 모든 회차를 통틀어 안전하게 남는 ${amount}개를 일반 테이블로 전환할까요? 모든 날짜·시간대에 공통 적용되며, 전환된 테이블은 이후 매칭 예약을 받지 않습니다.`,
       )
     ) {
       return;
@@ -84,7 +132,7 @@ export function CapacityGauge() {
             정원 현황
           </h2>
           <p className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
-            배치도처럼 테이블 하나하나를 칸으로 보여줘요
+            배치도처럼 테이블 하나하나를 칸으로, 날짜·시간대(회차)별로 나눠서 보여줘요
           </p>
         </div>
         <Button variant="secondary" onClick={handleRebuild} disabled={rebuilding}>
@@ -111,89 +159,109 @@ export function CapacityGauge() {
       {convertError && <p className="mt-2 text-xs text-red-500">{convertError}</p>}
 
       <div className="mt-3 space-y-2">
-        {rows.map(({ booth, slots, leftovers }) => {
-          const fullCount = slots.filter((s) => s.approved >= s.tableCount).length;
-          return (
-            <div
-              key={booth.id}
-              className="rounded-xl border border-black/5 p-3 dark:border-white/5"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
-                  {booth.name}
-                </span>
-                {fullCount > 0 && (
-                  <Badge tone="red">
-                    {fullCount}/{slots.length}종 마감
-                  </Badge>
-                )}
-              </div>
+        {rows.map(({ booth, sections, leftovers }) => (
+          <div
+            key={booth.id}
+            className="rounded-xl border border-black/5 p-3 dark:border-white/5"
+          >
+            <span className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">
+              {booth.name}
+            </span>
 
-              <div className="mt-2.5 space-y-3">
-                {slots.map((s) => {
-                  const boxes: TableBox[] = [];
-                  for (let i = 0; i < s.tableCount; i++) {
-                    if (i < s.approved) boxes.push({ key: `c${i}`, kind: "confirmed" });
-                    else if (i < s.active) boxes.push({ key: `p${i}`, kind: "pending" });
-                    else boxes.push({ key: `e${i}`, kind: "empty" });
-                  }
-                  const overbookCount = Math.max(0, s.active - s.tableCount);
-                  for (let i = 0; i < overbookCount; i++) {
-                    boxes.push({ key: `w${i}`, kind: "waiting", num: i + 1 });
-                  }
-
-                  return (
-                    <div key={s.slotKey}>
-                      <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                        {s.capacity}인{" "}
-                        {s.forMatching ? `매칭·${s.gender ? GENDER_LABEL[s.gender] : ""}` : "일반"}{" "}
-                        <span className="text-neutral-400 dark:text-neutral-500">
-                          (확정 {s.approved}/{s.tableCount})
-                        </span>
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {boxes.map((b) => (
-                          <TableBoxCell key={b.key} box={b} />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {leftovers.length > 0 && (
-                <div className="mt-2.5 space-y-1.5 border-t border-dashed border-black/10 pt-2.5 dark:border-white/10">
-                  {leftovers.map((l) => (
-                    <div
-                      key={l.tableId}
-                      className="flex flex-wrap items-center justify-between gap-2 text-[11px]"
-                    >
-                      <span className="text-neutral-500 dark:text-neutral-400">
-                        💘 {l.capacity}인 매칭 테이블 {l.occupied}/{l.count} 사용중
-                        {l.pendingCount > 0 && (
-                          <span className="ml-1 text-amber-600 dark:text-amber-400">
-                            (대기 {l.pendingCount}건 먼저 처리)
-                          </span>
-                        )}
+            <div className="mt-2.5 space-y-4">
+              {sections.map(({ date, time, slots, sessionLeftovers }) => {
+                const fullCount = slots.filter((s) => s.approved >= s.tableCount).length;
+                return (
+                  <div key={`${date}|${time}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+                        {formatDateLabel(date)} · {time}
                       </span>
-                      {l.pendingCount === 0 && l.leftover > 0 && (
-                        <Button
-                          variant="secondary"
-                          disabled={convertingId === l.tableId}
-                          onClick={() => handleConvert(booth.id, l.tableId, l.capacity, l.leftover)}
-                        >
-                          {convertingId === l.tableId
-                            ? "전환 중..."
-                            : `남는 ${l.leftover}개 일반으로 전환`}
-                        </Button>
+                      {fullCount > 0 && (
+                        <Badge tone="red">
+                          {fullCount}/{slots.length}종 마감
+                        </Badge>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div className="mt-1.5 space-y-3">
+                      {slots.map((s) => {
+                        const boxes: TableBox[] = [];
+                        for (let i = 0; i < s.tableCount; i++) {
+                          if (i < s.approved) boxes.push({ key: `c${i}`, kind: "confirmed" });
+                          else if (i < s.active) boxes.push({ key: `p${i}`, kind: "pending" });
+                          else boxes.push({ key: `e${i}`, kind: "empty" });
+                        }
+                        const overbookCount = Math.max(0, s.active - s.tableCount);
+                        for (let i = 0; i < overbookCount; i++) {
+                          boxes.push({ key: `w${i}`, kind: "waiting", num: i + 1 });
+                        }
+
+                        return (
+                          <div key={s.slotKey}>
+                            <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                              {s.capacity}인{" "}
+                              {s.forMatching
+                                ? `매칭·${s.gender ? GENDER_LABEL[s.gender] : ""}`
+                                : "일반"}{" "}
+                              <span className="text-neutral-400 dark:text-neutral-500">
+                                (확정 {s.approved}/{s.tableCount})
+                              </span>
+                            </div>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {boxes.map((b) => (
+                                <TableBoxCell key={b.key} box={b} />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {sessionLeftovers.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+                        {sessionLeftovers.map((l) => (
+                          <span key={l.tableId}>
+                            💘 {l.capacity}인 매칭 테이블 {l.occupied}/{l.count} 사용중(이 회차)
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+
+            {leftovers.length > 0 && (
+              <div className="mt-2.5 space-y-1.5 border-t border-dashed border-black/10 pt-2.5 dark:border-white/10">
+                {leftovers.map((l) => (
+                  <div
+                    key={l.tableId}
+                    className="flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                  >
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      💘 {l.capacity}인 매칭 테이블 전체 회차 중 최대 {l.occupied}/{l.count} 사용
+                      {l.pendingCount > 0 && (
+                        <span className="ml-1 text-amber-600 dark:text-amber-400">
+                          (대기 {l.pendingCount}건 먼저 처리)
+                        </span>
+                      )}
+                    </span>
+                    {l.pendingCount === 0 && l.leftover > 0 && (
+                      <Button
+                        variant="secondary"
+                        disabled={convertingId === l.tableId}
+                        onClick={() => handleConvert(booth.id, l.tableId, l.capacity, l.leftover)}
+                      >
+                        {convertingId === l.tableId
+                          ? "전환 중..."
+                          : `남는 ${l.leftover}개 일반으로 전환`}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </Card>
   );

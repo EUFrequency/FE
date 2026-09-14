@@ -4,50 +4,24 @@ import { useEffect, useMemo, useState } from "react";
 import { useAdminStore } from "../../_lib/store";
 import { getLayoutAction, saveLayoutAction } from "../../_lib/layout-actions";
 import type { SeasonLayout } from "../../_lib/types";
-import { Badge, Button, Card, Input, Label, Select } from "../ui";
+import { Badge, Button, Card, Input, Label } from "../ui";
 
 // 사용자 화면(모바일, 440px 안팎)에서 격자가 그대로 보여야 해서 상한을 둠 - 이보다 크면
 // 칸이 너무 작아져 못 알아봄(BoothMap.tsx 참고)
 const MAX_ROWS = 4;
 const MAX_COLS = 8;
 
+/** 배치도는 시즌 구분 없이 항상 하나만 - 시즌 선택지 없음 */
 export function LayoutTab() {
-  const { state } = useAdminStore();
-  const [seasonId, setSeasonId] = useState<string>(
-    () => state.seasons.find((s) => s.status === "ongoing")?.id ?? state.seasons[0]?.id ?? "",
-  );
-
-  const season = state.seasons.find((s) => s.id === seasonId);
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
           주점 배치
         </h1>
-        <label className="flex items-center gap-2">
-          <Label>시즌</Label>
-          <Select
-            className="w-56"
-            value={seasonId}
-            onChange={(e) => setSeasonId(e.target.value)}
-          >
-            {state.seasons.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </label>
       </div>
 
-      {!season ? (
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          먼저 시즌 관리에서 시즌을 생성해주세요.
-        </p>
-      ) : (
-        <LayoutEditor key={seasonId} seasonId={seasonId} />
-      )}
+      <LayoutEditor />
     </div>
   );
 }
@@ -80,7 +54,7 @@ function resizeCells(
 type LoadStatus = "loading" | "loaded" | "error";
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-function LayoutEditor({ seasonId }: { seasonId: string }) {
+function LayoutEditor() {
   const { state } = useAdminStore();
   const boothMap = useMemo(
     () => new Map(state.booths.map((b) => [b.id, b])),
@@ -98,12 +72,10 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  // 시즌이 바뀔 때(=이 컴포넌트가 새로 마운트될 때) Firestore에서 배치도를 불러옴.
-  // loadStatus는 useState 초기값이 이미 "loading"이라 여기서 다시 set할 필요 없음
-  // (이 컴포넌트는 시즌마다 key={seasonId}로 새로 마운트됨).
+  // 처음 마운트될 때 한 번만 Firestore에서 배치도를 불러옴 (시즌 구분 없이 하나뿐)
   useEffect(() => {
     let cancelled = false;
-    getLayoutAction(seasonId).then((result) => {
+    getLayoutAction().then((result) => {
       if (cancelled) return;
       if (!result.ok) {
         setLoadStatus("error");
@@ -123,7 +95,7 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [seasonId]);
+  }, []);
 
   const placedBoothIds = useMemo(
     () => new Set(Object.values(cells).filter(Boolean) as string[]),
@@ -182,7 +154,7 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
     const layout: SeasonLayout = { rows, cols, cells, updatedAt: new Date().toISOString() };
     setSaveStatus("saving");
     try {
-      const result = await saveLayoutAction(seasonId, layout);
+      const result = await saveLayoutAction(layout);
       if (!result.ok) throw new Error(result.error);
       setSaveStatus("saved");
       setLastSavedAt(layout.updatedAt);

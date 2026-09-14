@@ -9,7 +9,7 @@ import {
 } from "./firestore-booths";
 import { listReservations } from "./firestore-reservations";
 import { createId } from "./id";
-import { computeMatchingTableLeftover } from "./slots";
+import { computeMatchingTableSafeLeftover } from "./slots";
 import type { AdminBooth } from "./types";
 
 export async function listBoothsAction(): Promise<ActionResult<AdminBooth[]>> {
@@ -59,7 +59,7 @@ export async function convertMatchingTableAction(
     }
 
     const reservations = await listReservations();
-    const leftover = computeMatchingTableLeftover(booth.tables, reservations).find(
+    const leftover = computeMatchingTableSafeLeftover(booth.tables, reservations).find(
       (x) => x.tableId === tableId,
     );
     if (!leftover) throw new Error("테이블 정보를 다시 불러와주세요.");
@@ -69,7 +69,7 @@ export async function convertMatchingTableAction(
       );
     }
     if (leftover.leftover <= 0) {
-      throw new Error("전환할 수 있는 남는 테이블이 없습니다.");
+      throw new Error("전환할 수 있는 남는 테이블이 없습니다(다른 회차에서 쓰이고 있을 수 있어요).");
     }
 
     const amount = leftover.leftover;

@@ -1,7 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { nowKST, todayKST } from "@/lib/kst";
-import { queueDeleteLayout } from "./firestore-layouts";
 import { isGeneralReservationOpen, isMatchingReservationOpen, isViewOpen } from "./season-status";
 import type { Season, SeasonStatus } from "./types";
 
@@ -260,7 +259,8 @@ export async function forceCloseReservation(
 
 /**
  * 시즌 삭제. 진행중인 시즌은 삭제할 수 없음(먼저 조기종료해야 함) - 축제 도중에
- * 갑자기 없어지는 걸 막기 위한 안전장치. 그 시즌의 배치도도 같이 정리됨.
+ * 갑자기 없어지는 걸 막기 위한 안전장치. 주점 배치도는 시즌과 무관하게 하나뿐이라
+ * 시즌을 지워도 그대로 남는다.
  */
 export async function deleteSeason(id: string): Promise<void> {
   const doc = await seasonsCollection().doc(id).get();
@@ -271,8 +271,5 @@ export async function deleteSeason(id: string): Promise<void> {
     throw new Error("진행중인 시즌은 삭제할 수 없습니다. 먼저 조기종료해주세요.");
   }
 
-  const batch = getAdminDb().batch();
-  batch.delete(doc.ref);
-  queueDeleteLayout(batch, id);
-  await batch.commit();
+  await doc.ref.delete();
 }

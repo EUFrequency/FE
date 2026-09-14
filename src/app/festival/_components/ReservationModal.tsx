@@ -261,6 +261,8 @@ export function ReservationModal({
     setChecking(true);
     try {
       const res = await checkAvailabilityAction(booth.id, {
+        date: form.date,
+        time: form.time,
         matching: form.matchingEnabled,
         gender: form.matchingEnabled ? form.gender || null : null,
         headcount: form.headcount,

@@ -1,6 +1,6 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
-import { queueRemoveBoothFromLayouts } from "./firestore-layouts";
+import { queueRemoveBoothFromLayout } from "./firestore-layouts";
 import { deleteBoothInventory } from "./firestore-inventory";
 import { MAX_GENERAL_HEADCOUNT, type AdminBooth, type MenuItem, type MinOrderRule, type TableConfig, type TimeSlot } from "./types";
 
@@ -203,7 +203,7 @@ export async function deleteBooth(id: string): Promise<void> {
   existingImages.docs.forEach((d) => batch.delete(d.ref));
   batch.delete(ref);
   batch.delete(db.collection(ALIASES_COLLECTION).doc(id));
-  await queueRemoveBoothFromLayouts(batch, id);
+  await queueRemoveBoothFromLayout(batch, id);
   await batch.commit();
 
   // 정원 슬롯 문서(서브컬렉션)는 배치에 못 넣어서 따로 정리

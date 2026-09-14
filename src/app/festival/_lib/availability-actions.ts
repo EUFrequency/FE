@@ -3,11 +3,13 @@
 import { getBoothLight } from "@/app/admin/_lib/firestore-booths";
 import { getSlotCounts } from "@/app/admin/_lib/firestore-inventory";
 import { getOverbookLimit } from "@/app/admin/_lib/firestore-settings";
-import { resolveGeneralSlot, resolveMatchingSlot } from "@/app/admin/_lib/slots";
+import { generalSlotKey, resolveGeneralCombo, resolveMatchingSlot } from "@/app/admin/_lib/slots";
 import { FirebaseNotConfiguredError } from "@/lib/firebase/admin";
 import type { MatchingGender } from "@/app/admin/_lib/types";
 
 export type AvailabilityInput = {
+  date: string;
+  time: string;
   matching: boolean;
   gender: MatchingGender | null;
   headcount: number;
@@ -37,10 +39,12 @@ export async function checkAvailabilityAction(
       return { ok: false, status: "invalid", reason: "주점을 찾을 수 없습니다." };
     }
 
-    const counts = await getSlotCounts(boothId);
+    const [counts, overbookLimit] = await Promise.all([
+      getSlotCounts(boothId),
+      getOverbookLimit(),
+    ]);
 
     if (input.matching) {
-      const overbookLimit = await getOverbookLimit();
       const slot = resolveMatchingSlot(booth.tables, input, overbookLimit);
       if (!slot.ok) {
         return { ok: false, status: "invalid", reason: slot.reason };
@@ -57,25 +61,22 @@ export async function checkAvailabilityAction(
       };
     }
 
-    // 일반 예약: 인원수 구간(밴드)에 맞는 테이블 정원 하나가 있는지, 자리가 남아있는지만
-    // 미리 확인 (최종 배정은 제출 시 트랜잭션에서 - slots.ts의 resolveGeneralSlot)
-    const resolved = resolveGeneralSlot(booth.tables, input.headcount);
+    // 일반 예약: 인원을 만족하는 테이블 조합이 있는지만 미리 확인 (최종 배정은 제출 시
+    // 트랜잭션에서 - slots.ts의 resolveGeneralCombo)
+    const resolved = resolveGeneralCombo(
+      booth.tables,
+      (cap) => counts[generalSlotKey(input.date, input.time, cap)] ?? 0,
+      input.headcount,
+      overbookLimit,
+    );
     if (!resolved.ok) {
       return { ok: false, status: "full", reason: resolved.reason };
     }
-    const active = counts[resolved.slotKey] ?? 0;
-    if (active >= resolved.tableCount) {
-      return {
-        ok: false,
-        status: "full",
-        reason: "잔여 테이블이 부족하여 예약이 불가능합니다. 다른 시간대를 이용해주세요.",
-      };
-    }
     return {
       ok: true,
-      status: "available",
-      remaining: resolved.tableCount - active,
-      capacity: resolved.capacity,
+      status: resolved.zone === "overbook" ? "overbook" : "available",
+      remaining: resolved.tableCapacity - input.headcount,
+      capacity: resolved.tableCapacity,
     };
   } catch (e) {
     return {

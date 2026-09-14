@@ -8,7 +8,7 @@ import {
 } from "../../../_lib/reservation-actions";
 import { buildApprovalMessage, buildRejectionMessage } from "../../../_lib/messages";
 import type { Reservation } from "../../../_lib/types";
-import { Button, Card, EmptyState } from "../../ui";
+import { Button, Card, EmptyState, Select } from "../../ui";
 import { CopyButton } from "../../CopyButton";
 import { Modal } from "../../Modal";
 import { CapacityGauge } from "./CapacityGauge";
@@ -18,11 +18,29 @@ type PendingAction =
   | { type: "approve"; reservation: Reservation }
   | { type: "reject"; reservation: Reservation };
 
+/** ISO 문자열 -> "2026년 9월 15일 오후 3:24" (KST) */
+function formatCreatedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export function PendingPanel() {
   const { state, dispatch, reservationsError } = useAdminStore();
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [boothFilter, setBoothFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("all");
 
   const pending = useMemo(
     () =>
@@ -30,6 +48,32 @@ export function PendingPanel() {
         .filter((r) => r.status === "pending")
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [state.reservations],
+  );
+
+  // 필터 선택지는 지금 대기 중인 예약들 기준으로만 뽑음(처리된 예약은 이 탭 관심사가 아님)
+  const boothOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    pending.forEach((r) => map.set(r.boothId, r.boothName));
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [pending]);
+  const dateOptions = useMemo(
+    () => Array.from(new Set(pending.map((r) => r.date))).sort(),
+    [pending],
+  );
+  const timeOptions = useMemo(
+    () => Array.from(new Set(pending.map((r) => r.time))).sort(),
+    [pending],
+  );
+
+  const filteredPending = useMemo(
+    () =>
+      pending.filter(
+        (r) =>
+          (boothFilter === "all" || r.boothId === boothFilter) &&
+          (dateFilter === "all" || r.date === dateFilter) &&
+          (timeFilter === "all" || r.time === timeFilter),
+      ),
+    [pending, boothFilter, dateFilter, timeFilter],
   );
 
   function requestApprove(r: Reservation) {
@@ -72,13 +116,53 @@ export function PendingPanel() {
 
   return (
     <div className="space-y-5">
-      <CapacityGauge />
-
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
-          {pending.length}건 대기 중
+          {boothFilter === "all" && dateFilter === "all" && timeFilter === "all"
+            ? `${pending.length}건 대기 중`
+            : `${filteredPending.length}건 대기 중 (전체 ${pending.length}건)`}
         </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            className="w-40"
+            value={boothFilter}
+            onChange={(e) => setBoothFilter(e.target.value)}
+          >
+            <option value="all">전체 주점</option>
+            {boothOptions.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            className="w-36"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+          >
+            <option value="all">전체 날짜</option>
+            {dateOptions.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </Select>
+          <Select
+            className="w-44"
+            value={timeFilter}
+            onChange={(e) => setTimeFilter(e.target.value)}
+          >
+            <option value="all">전체 시간대</option>
+            {timeOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
+
+      <CapacityGauge boothFilter={boothFilter} dateFilter={dateFilter} timeFilter={timeFilter} />
 
       {reservationsError && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
@@ -87,11 +171,13 @@ export function PendingPanel() {
         </div>
       )}
 
-      {pending.length === 0 ? (
-        <EmptyState>대기 중인 예약이 없습니다.</EmptyState>
+      {filteredPending.length === 0 ? (
+        <EmptyState>
+          {pending.length === 0 ? "대기 중인 예약이 없습니다." : "필터에 맞는 예약이 없습니다."}
+        </EmptyState>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {pending.map((r) => (
+          {filteredPending.map((r) => (
             <Card key={r.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -117,6 +203,10 @@ export function PendingPanel() {
                 <dt className="text-neutral-500 dark:text-neutral-400">결제 금액</dt>
                 <dd className="text-right font-semibold text-amber-600 dark:text-amber-400">
                   {r.totalAmount.toLocaleString()}원
+                </dd>
+                <dt className="text-neutral-500 dark:text-neutral-400">접수 시각</dt>
+                <dd className="text-right text-neutral-900 dark:text-neutral-100">
+                  {formatCreatedAt(r.createdAt)}
                 </dd>
               </dl>
 

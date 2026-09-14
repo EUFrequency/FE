@@ -127,11 +127,8 @@ export default async function FestivalNoticePage() {
 
           <Section num={5} title="대기 예약 안내" accent>
             <p>
-              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
-                과팅(매칭) 예약
-              </b>
-              은 원하시는 시간대의 자리가 이미 다 찼어도, 저희가 여유분으로 몇 팀 더
-              접수를 받아요. 이 경우 예약 화면에{" "}
+              원하시는 시간대의 자리가 이미 다 찼어도, 저희가 여유분으로 몇 팀 더
+              접수를 받아요(일반·과팅 예약 모두 해당). 이 경우 예약 화면에{" "}
               <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                 몇 번째 대기인지(대기 1번, 2번...)
               </b>
@@ -156,8 +153,7 @@ export default async function FestivalNoticePage() {
             </p>
             <p className="mt-3">
               대기 순번이 당겨지거나 확정/취소 안내는 모두 카카오톡으로 개별
-              연락드리니 꼭 확인해주세요. (일반 예약은 대기 접수 없이, 자리가 없으면
-              예약 화면에서 바로 안내됩니다.)
+              연락드리니 꼭 확인해주세요.
             </p>
           </Section>
 

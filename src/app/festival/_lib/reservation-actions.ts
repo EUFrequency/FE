@@ -195,16 +195,18 @@ export async function submitReservationAction(
       };
     }
 
-    //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나(오버부킹 포함).
-    //    일반이면 인원수 구간(밴드)에 맞는 테이블 정원 하나(오버부킹 없음) - 실제 배정은
-    //    createReservation 트랜잭션에서 현재 정원 현황을 보고 계산한다 (slots.ts의 resolveGeneralSlot).
+    //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나, 일반이면 인원을 만족하는
+    //    테이블 조합 - 둘 다 오버부킹 포함. 실제 배정은 createReservation 트랜잭션에서
+    //    현재 정원 현황을 보고 계산한다 (slots.ts의 resolveGeneralCombo).
+    const overbookLimit = await getOverbookLimit();
 
     let slot: CreateReservationSlot;
     if (input.matching) {
-      const overbookLimit = await getOverbookLimit();
       const resolved = resolveMatchingSlot(
         booth.tables,
         {
+          date: input.date,
+          time: input.time,
           gender: (input.matchingGender as MatchingGender) ?? null,
           headcount: input.headcount,
         },
@@ -260,6 +262,7 @@ export async function submitReservationAction(
         timeEndMin,
       },
       slot,
+      overbookLimit,
     );
     return { ok: true, zone, waitingNumber };
   } catch (e) {
