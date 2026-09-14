@@ -1,12 +1,14 @@
 "use server";
 
 import { requireAdmin, toActionResult, type ActionResult } from "./action-result";
+import { verifyAdminPassword } from "./auth";
 import { listBoothsLight } from "./firestore-booths";
 import { rebuildBoothInventory } from "./firestore-inventory";
 import {
   convertMatchingToGeneral,
   listReservations,
   pairReservations,
+  resetAllReservations,
   setReservationStatus,
   unpairReservation,
 } from "./firestore-reservations";
@@ -76,5 +78,19 @@ export async function rebuildInventoryAction(): Promise<ActionResult> {
     for (const booth of booths) {
       await rebuildBoothInventory(booth.id, reservations);
     }
+  });
+}
+
+/**
+ * 모든 예약 내역(대기·승인·반려 전부)을 완전히 삭제 - 되돌릴 수 없는 파괴적 동작이라
+ * 이미 로그인된 관리자 세션과 별개로 ADMIN_PASSWORD를 한 번 더 입력받아 확인한다.
+ */
+export async function resetAllReservationsAction(password: string): Promise<ActionResult> {
+  return toActionResult(async () => {
+    await requireAdmin();
+    if (!verifyAdminPassword(password)) {
+      throw new Error("비밀번호가 올바르지 않습니다.");
+    }
+    await resetAllReservations();
   });
 }

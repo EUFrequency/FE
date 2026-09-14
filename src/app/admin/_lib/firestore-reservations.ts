@@ -8,7 +8,7 @@ import {
   type TableConfig,
   type TableUsage,
 } from "./types";
-import { slotRef } from "./firestore-inventory";
+import { deleteBoothInventory, slotRef } from "./firestore-inventory";
 import {
   canApproveReservation,
   reservationSlotKeys,
@@ -65,6 +65,33 @@ function toReservation(doc: FirebaseFirestore.QueryDocumentSnapshot): Reservatio
 export async function listReservations(): Promise<Reservation[]> {
   const snap = await reservationsCollection().get();
   return snap.docs.map(toReservation);
+}
+
+async function deleteAllDocsInBatches(collectionName: string): Promise<void> {
+  const db = getAdminDb();
+  const collRef = db.collection(collectionName);
+  for (;;) {
+    const snap = await collRef.limit(500).get();
+    if (snap.empty) return;
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+/**
+ * 모든 예약 내역(대기·승인·반려 가리지 않고 전부)과 그에 딸린 상태(전화번호 중복 마커,
+ * 주점별 정원 슬롯 카운터)를 완전히 초기화한다 - 되돌릴 수 없음.
+ * 별칭 풀(boothAliases)은 예약이 아니라 관리자가 등록해둔 설정이라 건드리지 않는다.
+ */
+export async function resetAllReservations(): Promise<void> {
+  await deleteAllDocsInBatches(COLLECTION);
+  await deleteAllDocsInBatches(PHONES_COLLECTION);
+
+  const boothsSnap = await getAdminDb().collection(BOOTHS_COLLECTION).get();
+  for (const boothDoc of boothsSnap.docs) {
+    await deleteBoothInventory(boothDoc.id);
+  }
 }
 
 /** 이 전화번호로 같은 날짜·시간대에 이미 접수된(반려되지 않은) 예약이 있는지 */
