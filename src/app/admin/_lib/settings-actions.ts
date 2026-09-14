@@ -4,8 +4,10 @@ import { requireAdmin, toActionResult, type ActionResult } from "./action-result
 import {
   getContactInfo,
   getDepartments,
+  getOverbookLimit,
   setContactInfo,
   setDepartments,
+  setOverbookLimit,
 } from "./firestore-settings";
 
 export async function getContactInfoAction(): Promise<ActionResult<string | null>> {
@@ -33,5 +35,19 @@ export async function setDepartmentsAction(list: string[]): Promise<ActionResult
   return toActionResult(async () => {
     await requireAdmin();
     await setDepartments(list);
+  });
+}
+
+export async function getOverbookLimitAction(): Promise<ActionResult<number>> {
+  return toActionResult(async () => {
+    await requireAdmin();
+    return getOverbookLimit();
+  });
+}
+
+export async function setOverbookLimitAction(value: number): Promise<ActionResult> {
+  return toActionResult(async () => {
+    await requireAdmin();
+    await setOverbookLimit(value);
   });
 }

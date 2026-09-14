@@ -41,15 +41,20 @@ export type Season = {
   earlyEndedAt: string | null;
 };
 
-/** 테이블 종류(정원+용도)마다 허용하는 오버부킹 팀 수 (매칭은 성별별로 각각 적용) */
-export const TABLE_OVERBOOK = 3;
+/**
+ * 테이블 종류(정원+용도)마다 허용하는 오버부킹 팀 수 (매칭은 성별별로 각각 적용) 의 기본값.
+ * 관리자가 설정(settings/overbook, firestore-settings.ts의 getOverbookLimit)을 바꾸지 않았을 때만 씀 -
+ * 실제로 쓰이는 값은 항상 getOverbookLimit()을 통해 가져와야 함.
+ */
+export const DEFAULT_OVERBOOK_LIMIT = 3;
 
 /** 일반 예약이 앉을 수 있는 최소 인원 (1인 예약 불가) */
 export const MIN_GENERAL_HEADCOUNT = 2;
 
 /**
- * 일반 예약 인원의 상한. 테이블 하나의 정원과는 무관함 - 큰 인원은 여러 테이블
- * 조합으로 나눠 앉히므로, 이 값은 그냥 비상식적으로 큰 인원을 막기 위한 안전장치.
+ * 일반 예약 인원의 절대 상한(입력값 자체에 대한 안전장치). 실제로 예약 가능한 인원은
+ * 이보다 훨씬 좁게, 주점별로 등록된 일반 테이블 중 가장 큰 정원으로 정해진다
+ * (slots.ts의 generalHeadcountRange/resolveGeneralSlot 참고).
  */
 export const MAX_GENERAL_HEADCOUNT = 20;
 
@@ -80,7 +85,9 @@ export type Reservation = {
    */
   tableCapacity: number;
   /**
-   * 일반 예약이 실제로 배정된 테이블 조합 (예: 10인 -> 6인 테이블 1개 + 4인 테이블 1개).
+   * 일반 예약이 실제로 배정된 테이블 정원 하나(예: 6인 테이블 1개) - resolveGeneralSlot이
+   * 인원수 구간(밴드)에 맞는 정원 하나로만 배정하므로 항상 길이 1인 배열.
+   * (예전엔 여러 테이블을 조합해 배정했던 기록이 남아있을 수 있어 배열 타입을 유지함)
    * 매칭 예약은 항상 테이블 하나만 쓰므로 비워둠(undefined) - tableCapacity로 충분.
    */
   tableAssignment?: TableUsage[];

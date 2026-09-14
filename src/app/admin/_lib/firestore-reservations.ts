@@ -11,10 +11,8 @@ import {
 import { slotRef } from "./firestore-inventory";
 import {
   canApproveReservation,
-  generalSlotKey,
-  generalTableAvailability,
   reservationSlotKeys,
-  resolveGeneralTableCombo,
+  resolveGeneralSlot,
 } from "./slots";
 
 const COLLECTION = "reservations";
@@ -291,9 +289,10 @@ export async function unpairReservation(id: string): Promise<void> {
  * 짝이 있었다면 상대 예약도 함께 취소한다(같은 사람들이 새 일반 예약으로 흡수되므로).
  *
  * 새 일반 예약은 기존 예약의 대표자/연락처/학과/계좌/주문 내역을 그대로 물려받고,
- * 실제 테이블 배정은 createReservation의 조합 탐색 로직에 맡긴다(예: 6인 테이블이 다
- * 찼으면 4인 테이블 여유가 있는지 확인 후 자동으로 옮겨감) - 상태는 항상 새로 접수된
- * "대기"부터 시작해 관리자가 다시 승인해야 함(물리 정원을 넘겨 확정되는 일이 없도록).
+ * 실제 테이블 배정은 createReservation의 resolveGeneralSlot에 맡긴다(인원수 구간에 맞는
+ * 테이블 정원 하나 - 그 정원이 이미 다 찼으면 다른 정원으로 옮겨주지 않고 그냥 실패한다)
+ * - 상태는 항상 새로 접수된 "대기"부터 시작해 관리자가 다시 승인해야 함
+ * (물리 정원을 넘겨 확정되는 일이 없도록).
  */
 export async function convertMatchingToGeneral(
   reservationId: string,
@@ -347,7 +346,8 @@ export async function convertMatchingToGeneral(
   );
 }
 
-/** 매칭은 미리 정해진 테이블 하나, 일반은 여러 테이블 조합일 수 있어 테이블 목록 자체를 넘김 */
+/** 매칭은 미리 정해진 테이블 하나, 일반은 인원수 구간에 맞는 정원을 트랜잭션 안에서
+ *  골라야 해서(resolveGeneralSlot) 테이블 목록 자체를 넘김 */
 export type CreateReservationSlot =
   | { kind: "matching"; slotKey: string; capacity: number; tableCount: number; limit: number }
   | { kind: "general"; tables: TableConfig[] };
@@ -366,12 +366,12 @@ export class ReservationBlockedError extends Error {
  * 공개 축제 페이지(/festival)에서 예약 신청 시 호출 - 인증 불필요.
  * 트랜잭션 안에서:
  *  1) 같은 날짜·시간대 전화번호 중복 확인
- *  2) 매칭이면 정원 슬롯 하나, 일반이면 인원에 맞는 테이블 조합을 찾아 정원(+오버부킹)
- *     초과 여부를 확인하고 필요한 만큼 슬롯을 +1
+ *  2) 매칭이면 정원 슬롯 하나(오버부킹 포함 limit), 일반이면 인원수 구간(밴드)에 맞는
+ *     테이블 정원 하나(오버부킹 없음)를 찾아 정원 초과 여부를 확인하고 슬롯을 +1
  * status는 항상 "pending"으로 시작하고, 별칭(assignedAlias)은 아직 없음(null) -
  * 매칭 관리 탭에서 짝을 지을 때 관리자가 배정한다(pairReservations 참고).
  *
- * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지 +
+ * @returns 정원 내(normal)인지 오버부킹 구간(overbook)인지(매칭만 해당) +
  *          오버부킹이면 대기 번째 수 (1부터 시작, 정원을 넘긴 뒤 몇 번째로 접수됐는지)
  */
 export async function createReservation(
@@ -418,51 +418,25 @@ export async function createReservation(
       tableAssignment = [{ capacity: slot.capacity, count: 1 }];
       slotWrites.push({ ref: sRef, active: active + 1 });
     } else {
-      // 일반: 정원별 등록 테이블 수를 모아서, 그중 실제로 더 쓸 수 있는(오버부킹 포함) 만큼을
-      // 계산한 뒤 인원을 만족하는 테이블 조합을 찾음 (예: 6인 꽉 참 -> 4인 테이블 2개로)
-      const tableCountByCapacity = new Map<number, number>();
-      for (const t of slot.tables) {
-        if (t.forMatching || t.count <= 0) continue;
-        tableCountByCapacity.set(t.capacity, (tableCountByCapacity.get(t.capacity) ?? 0) + t.count);
+      // 일반: 인원수 구간(밴드)에 맞는 테이블 정원 하나에만 배정 - 여러 테이블을 조합해
+      // 늘려주지 않고, 오버부킹도 없음(정원이 차면 바로 마감). resolveGeneralSlot 참고.
+      const resolved = resolveGeneralSlot(slot.tables, input.headcount);
+      if (!resolved.ok) {
+        throw new ReservationBlockedError(resolved.reason, "full");
       }
-      const capacities = Array.from(tableCountByCapacity.keys());
-      const refs = capacities.map((cap) => ({
-        cap,
-        ref: slotRef(input.boothId, generalSlotKey(cap)),
-      }));
-      const snaps = await Promise.all(refs.map((r) => tx.get(r.ref)));
-      const activeByCapacity = new Map<number, number>();
-      refs.forEach((r, i) => {
-        activeByCapacity.set(r.cap, (snaps[i].data()?.active as number | undefined) ?? 0);
-      });
-
-      const availability = generalTableAvailability(
-        slot.tables,
-        (cap) => activeByCapacity.get(cap) ?? 0,
-      );
-      const combo = resolveGeneralTableCombo(availability, input.headcount);
-      if (!combo) {
-        throw new ReservationBlockedError("인원에 맞는 자리가 없습니다.", "full");
+      const sRef = slotRef(input.boothId, resolved.slotKey);
+      const slotSnap = await tx.get(sRef);
+      const active = (slotSnap.data()?.active as number | undefined) ?? 0;
+      if (active >= resolved.tableCount) {
+        throw new ReservationBlockedError(
+          "잔여 테이블이 부족하여 예약이 불가능합니다. 다른 시간대를 이용해주세요.",
+          "full",
+        );
       }
-
-      tableAssignment = combo;
-      tableCapacity = combo.reduce((sum, a) => sum + a.capacity * a.count, 0);
       zone = "normal";
-      let maxOverbookDepth = 0;
-      for (const { capacity, count } of combo) {
-        const before = activeByCapacity.get(capacity) ?? 0;
-        const registeredCount = tableCountByCapacity.get(capacity) ?? 0;
-        const depth = before + count - registeredCount;
-        if (depth > 0) {
-          zone = "overbook";
-          maxOverbookDepth = Math.max(maxOverbookDepth, depth);
-        }
-        slotWrites.push({
-          ref: slotRef(input.boothId, generalSlotKey(capacity)),
-          active: before + count,
-        });
-      }
-      if (zone === "overbook") waitingNumber = maxOverbookDepth;
+      tableCapacity = resolved.capacity;
+      tableAssignment = [{ capacity: resolved.capacity, count: 1 }];
+      slotWrites.push({ ref: sRef, active: active + 1 });
     }
 
     // 별칭은 이제 예약 접수 시점이 아니라 매칭 관리 탭에서 짝을 지을 때 배정되므로

@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
 import { rebuildInventoryAction } from "../../../_lib/reservation-actions";
 import { convertMatchingTableAction } from "../../../_lib/booth-actions";
+import { getOverbookLimitAction } from "../../../_lib/settings-actions";
 import { computeMatchingTableLeftover, summarizeBoothSlots } from "../../../_lib/slots";
+import { DEFAULT_OVERBOOK_LIMIT } from "../../../_lib/types";
 import { Badge, Button, Card } from "../../ui";
 
 const GENDER_LABEL = { male: "남", female: "여" } as const;
@@ -15,19 +17,30 @@ export function CapacityGauge() {
   const [msg, setMsg] = useState<string | null>(null);
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
+  const [overbookLimit, setOverbookLimit] = useState(DEFAULT_OVERBOOK_LIMIT);
+
+  useEffect(() => {
+    let alive = true;
+    getOverbookLimitAction().then((res) => {
+      if (alive && res.ok) setOverbookLimit(res.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const rows = useMemo(() => {
     return state.booths
       .map((booth) => {
         const rs = state.reservations.filter((r) => r.boothId === booth.id);
-        const slots = summarizeBoothSlots(booth.tables, rs);
+        const slots = summarizeBoothSlots(booth.tables, rs, overbookLimit);
         const leftovers = computeMatchingTableLeftover(booth.tables, rs).filter(
           (l) => l.leftover > 0 || l.pendingCount > 0,
         );
         return { booth, slots, leftovers };
       })
       .filter((b) => b.slots.length > 0);
-  }, [state.booths, state.reservations]);
+  }, [state.booths, state.reservations, overbookLimit]);
 
   async function handleRebuild() {
     setMsg(null);

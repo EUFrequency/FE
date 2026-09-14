@@ -1,7 +1,5 @@
 import {
-  MAX_GENERAL_HEADCOUNT,
   MIN_GENERAL_HEADCOUNT,
-  TABLE_OVERBOOK,
   type MatchingGender,
   type Reservation,
   type TableConfig,
@@ -35,7 +33,7 @@ export type SlotResolution =
       capacity: number;
       /** 이 슬롯에 실제로 배치된 테이블 수 */
       tableCount: number;
-      /** 오버부킹 포함 최대 허용 수 = tableCount + TABLE_OVERBOOK */
+      /** 오버부킹 포함 최대 허용 수 = tableCount + overbookLimit */
       limit: number;
     }
   | { ok: false; reason: string };
@@ -46,12 +44,15 @@ export type SlotResolution =
  * (예: 6인 매칭 테이블 = 3인 팀 : 3인 팀). 그래서 한 팀의 인원수는 테이블 정원의 절반이어야
  * 매칭됨(headcount * 2 === capacity). 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
  *
- * 일반 예약은 테이블 하나가 아니라 여러 테이블 조합으로 배정될 수 있어
- * resolveGeneralTableCombo()를 대신 사용한다 (아래).
+ * 일반 예약은 인원수 구간(밴드)으로 테이블 정원 하나에 배정되므로
+ * resolveGeneralSlot()을 대신 사용한다 (아래).
+ *
+ * @param overbookLimit 정원 대비 추가로 받아줄 팀 수 - firestore-settings.ts의 getOverbookLimit()으로 가져온 값을 넘겨야 함
  */
 export function resolveMatchingSlot(
   tables: TableConfig[],
   input: { gender: MatchingGender | null; headcount: number },
+  overbookLimit: number,
 ): SlotResolution {
   if (!Number.isInteger(input.headcount) || input.headcount < 1) {
     return { ok: false, reason: "인원수가 올바르지 않습니다." };
@@ -78,93 +79,59 @@ export function resolveMatchingSlot(
     slotKey: matchingSlotKey(table.capacity, input.gender),
     capacity: table.capacity,
     tableCount: table.count,
-    limit: table.count + TABLE_OVERBOOK,
+    limit: table.count + overbookLimit,
   };
 }
 
-export type GeneralTableAvailability = { capacity: number; available: number };
-
 /**
- * 일반 테이블 구성 + 지금 활성(대기+승인) 예약 수로, 정원별로 "추가로 더 쓸 수 있는
- * 테이블 수"(오버부킹 포함)를 계산한다. 같은 정원의 테이블 행이 여러 개면 합산.
+ * 일반 예약이 어느 테이블 정원 하나에 배정되는지 계산 - 더 이상 여러 테이블을 조합하지
+ * 않고, 등록된 일반 테이블 정원을 오름차순으로 나열해 인원수 구간(밴드) 하나에만 매칭한다.
+ * 각 구간은 (바로 아래 정원, 이 정원]으로 자동 결정됨 - 예를 들어
+ *   4/6/8인 테이블이 있으면: 4인=2~4명, 6인=5~6명, 8인=7~8명
+ *   4/8인만 있으면(6인 없음): 4인=2~4명, 8인=5~8명
+ * 등록된 테이블 중 가장 큰 정원보다 인원이 많으면 이 주점에서는 애초에 받을 수 없는
+ * 인원이므로(예전처럼 여러 테이블을 합쳐 늘려주지 않음) 그 자리에서 막는다 - 오버부킹도
+ * 이제 일반 예약에는 적용하지 않아(resolveMatchingSlot과 달리 overbookLimit을 받지 않음),
+ * tableCount를 넘기면 바로 마감으로 처리한다(호출하는 쪽에서 active >= tableCount로 확인).
  */
-export function generalTableAvailability(
+export function resolveGeneralSlot(
   tables: TableConfig[],
-  activeByCapacity: (capacity: number) => number,
-): GeneralTableAvailability[] {
-  const totalByCapacity = new Map<number, number>();
+  headcount: number,
+): SlotResolution {
+  if (!Number.isInteger(headcount) || headcount < MIN_GENERAL_HEADCOUNT) {
+    return { ok: false, reason: "인원수가 올바르지 않습니다." };
+  }
+
+  const byCapacity = new Map<number, number>();
   for (const t of tables) {
     if (t.forMatching || t.count <= 0) continue;
-    totalByCapacity.set(t.capacity, (totalByCapacity.get(t.capacity) ?? 0) + t.count);
+    byCapacity.set(t.capacity, (byCapacity.get(t.capacity) ?? 0) + t.count);
   }
-  return Array.from(totalByCapacity.entries()).map(([capacity, count]) => ({
-    capacity,
-    available: Math.max(0, count + TABLE_OVERBOOK - activeByCapacity(capacity)),
-  }));
-}
-
-/**
- * headcount를 만족하는 일반 테이블 조합을 찾는다.
- * 우선순위: 1) 테이블 개수가 적을수록, 2) 그 안에서 남는 좌석(waste)이 적을수록.
- * 예: 6인 테이블이 다 찼고 4인 테이블만 남았으면 자동으로 4인 테이블 2개 조합을 찾는다.
- * 만족하는 조합이 없으면 null.
- */
-export function resolveGeneralTableCombo(
-  availability: GeneralTableAvailability[],
-  headcount: number,
-): TableUsage[] | null {
-  const usable = availability.filter((a) => a.capacity > 0 && a.available > 0);
-  if (usable.length === 0 || headcount <= 0) return null;
-
-  const MAX_TABLES = 12;
-  for (let size = 1; size <= MAX_TABLES; size++) {
-    const found = bestGeneralComboOfSize(usable, size, headcount);
-    if (found) return found;
+  const capacities = Array.from(byCapacity.keys()).sort((a, b) => a - b);
+  if (capacities.length === 0) {
+    return { ok: false, reason: "이 주점은 일반 예약을 받지 않습니다." };
   }
-  return null;
-}
 
-function bestGeneralComboOfSize(
-  usable: GeneralTableAvailability[],
-  size: number,
-  headcount: number,
-): TableUsage[] | null {
-  // best를 그냥 let으로 두면 재귀 클로저 안에서의 재할당을 TS가 못 따라가서
-  // 객체 프로퍼티로 감싸둠 (best.value 형태로 읽고 쓰기)
-  const state: { best: { counts: Map<number, number>; waste: number } | null } = {
-    best: null,
+  let prev = MIN_GENERAL_HEADCOUNT - 1;
+  for (const capacity of capacities) {
+    if (headcount > prev && headcount <= capacity) {
+      const tableCount = byCapacity.get(capacity)!;
+      return {
+        ok: true,
+        slotKey: generalSlotKey(capacity),
+        capacity,
+        tableCount,
+        limit: tableCount,
+      };
+    }
+    prev = capacity;
+  }
+
+  const max = capacities[capacities.length - 1];
+  return {
+    ok: false,
+    reason: `이 주점은 최대 ${max}인까지만 일반 예약을 받습니다. 인원을 줄여서 다시 시도해주세요.`,
   };
-
-  function rec(
-    startIdx: number,
-    left: number,
-    sum: number,
-    counts: Map<number, number>,
-  ) {
-    if (left === 0) {
-      if (sum >= headcount) {
-        const waste = sum - headcount;
-        if (!state.best || waste < state.best.waste) {
-          state.best = { counts: new Map(counts), waste };
-        }
-      }
-      return;
-    }
-    for (let i = startIdx; i < usable.length; i++) {
-      const { capacity, available } = usable[i];
-      const used = counts.get(capacity) ?? 0;
-      if (used >= available) continue;
-      counts.set(capacity, used + 1);
-      rec(i, left - 1, sum + capacity, counts);
-      counts.set(capacity, used);
-    }
-  }
-
-  rec(0, size, 0, new Map());
-  if (!state.best) return null;
-  return Array.from(state.best.counts.entries())
-    .filter(([, count]) => count > 0)
-    .map(([capacity, count]) => ({ capacity, count }));
 }
 
 /**
@@ -184,15 +151,17 @@ export function matchingHeadcountOptions(tables: TableConfig[]): number[] {
 
 /**
  * 일반 예약에서 허용되는 인원수 범위 [min, max]. 일반 테이블이 없으면 null.
- * max는 테이블 하나의 정원이 아니라 그냥 상식적인 상한(MAX_GENERAL_HEADCOUNT) -
- * 큰 인원은 여러 테이블 조합으로 나눠 앉히므로 특정 테이블 정원에 묶이지 않는다.
+ * max는 이제 등록된 일반 테이블 중 가장 큰 정원 - 더 이상 여러 테이블을 조합해 늘려주지
+ * 않으므로(resolveGeneralSlot 참고) 그 이상은 이 주점에서 원천적으로 받을 수 없다.
  */
 export function generalHeadcountRange(
   tables: TableConfig[],
 ): { min: number; max: number } | null {
-  const hasGeneralTable = tables.some((t) => !t.forMatching && t.count > 0);
-  if (!hasGeneralTable) return null;
-  return { min: MIN_GENERAL_HEADCOUNT, max: MAX_GENERAL_HEADCOUNT };
+  const capacities = tables
+    .filter((t) => !t.forMatching && t.count > 0)
+    .map((t) => t.capacity);
+  if (capacities.length === 0) return null;
+  return { min: MIN_GENERAL_HEADCOUNT, max: Math.max(...capacities) };
 }
 
 /**
@@ -232,10 +201,13 @@ export type SlotSummary = {
 /**
  * 주점 테이블 구성 + 그 주점의 예약 목록으로 슬롯별 정원 현황을 만든다.
  * (관리자 화면에서 이미 로드된 예약으로 계산 - 추가 읽기 없음)
+ *
+ * @param overbookLimit 정원 대비 추가로 받아줄 팀 수 - firestore-settings.ts의 getOverbookLimit()으로 가져온 값을 넘겨야 함
  */
 export function summarizeBoothSlots(
   tables: TableConfig[],
   reservations: Reservation[],
+  overbookLimit: number,
 ): SlotSummary[] {
   const active = new Map<string, number>();
   const approved = new Map<string, number>();
@@ -265,7 +237,8 @@ export function summarizeBoothSlots(
         forMatching: t.forMatching,
         gender,
         tableCount: t.count,
-        limit: t.count + TABLE_OVERBOOK,
+        // 오버부킹은 이제 매칭 예약에만 적용됨(일반 예약은 밴드가 차면 바로 마감)
+        limit: t.forMatching ? t.count + overbookLimit : t.count,
         active: active.get(slotKey) ?? 0,
         approved: approved.get(slotKey) ?? 0,
       });

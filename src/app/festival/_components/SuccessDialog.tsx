@@ -70,6 +70,8 @@ export function SuccessDialog({
                 </>
               )}
               <br />
+              확정 순서는 입금 완료 시각을 기준으로 처리됩니다.
+              <br />
               확정 여부는{" "}
               <span className="font-semibold text-amber-600 dark:text-amber-400">
                 카카오톡

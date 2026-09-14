@@ -15,6 +15,7 @@ import {
 import { lowestMinOrderAmount } from "../../_lib/min-order";
 import type { AdminBooth } from "../../_lib/types";
 import { Modal } from "../Modal";
+import { OverbookSettingCard } from "../OverbookSettingCard";
 import { Badge, Button, Card, EmptyState } from "../ui";
 import { BoothForm } from "./BoothForm";
 
@@ -119,6 +120,8 @@ export function BoothsTab() {
           {rowError}
         </div>
       )}
+
+      <OverbookSettingCard />
 
       <Modal open={formOpen} onClose={() => setMode("list")}>
         {formOpen && (

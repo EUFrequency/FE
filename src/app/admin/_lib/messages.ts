@@ -62,6 +62,19 @@ export function buildMatchingPairedMessage(r: Reservation, alias: string): strin
   ].join("\n");
 }
 
+/**
+ * 매칭 상대를 찾지 못했을 때 - 취소 또는 상대 없이 그대로 이용 중 선택을 물어보는 안내.
+ * 답변을 받은 뒤엔 매칭 관리 탭의 "취소하기" 또는 "일반 예약으로 전환하기"로 이어서 처리.
+ */
+export function buildMatchingUnmatchedMessage(r: Reservation): string {
+  return [
+    `안녕하세요 ${r.representativeName}님, 아쉽게도 ${formatDateKorean(
+      r.date,
+    )} ${formatTimeWithParens(r.time)} 과팅 매칭 상대를 아직 찾지 못했습니다.`,
+    `① 상대 팀 없이 예약자분들끼리 그대로 이용 ② 예약 취소(입금액 환불) 중 편하신 쪽을 알려주시면 바로 처리해드릴게요.`,
+  ].join("\n");
+}
+
 /** 매칭 예약을 일반 예약으로 전환 접수했을 때 안내 */
 export function buildMatchingConvertMessage(r: Reservation, newHeadcount: number): string {
   return [

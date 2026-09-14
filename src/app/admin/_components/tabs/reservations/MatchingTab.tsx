@@ -14,6 +14,7 @@ import {
   buildMatchingCancelMessage,
   buildMatchingConvertMessage,
   buildMatchingPairedMessage,
+  buildMatchingUnmatchedMessage,
 } from "../../../_lib/messages";
 import { MIN_GENERAL_HEADCOUNT, type Reservation } from "../../../_lib/types";
 import { Badge, Button, Checkbox, Input, Label, Select } from "../../ui";
@@ -45,6 +46,7 @@ export function MatchingTab() {
   const [error, setError] = useState<string | null>(null);
   const [convertTarget, setConvertTarget] = useState<Reservation | null>(null);
   const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
+  const [unmatchedTarget, setUnmatchedTarget] = useState<Reservation | null>(null);
   const [pairTarget, setPairTarget] = useState<{ male: Reservation; female: Reservation } | null>(
     null,
   );
@@ -244,6 +246,13 @@ export function MatchingTab() {
             ))}
           </div>
         )}
+        <Button
+          variant="secondary"
+          disabled={!activeSingle || busy}
+          onClick={() => activeSingle && setUnmatchedTarget(activeSingle)}
+        >
+          매칭 안됨 안내
+        </Button>
         <Button variant="danger" disabled={!activeSingle || busy} onClick={requestCancel}>
           취소하기
         </Button>
@@ -287,6 +296,15 @@ export function MatchingTab() {
             partner={convertTarget.pairedWith ? byId.get(convertTarget.pairedWith) ?? null : null}
             onDone={handleConverted}
             onCancel={() => setConvertTarget(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal open={unmatchedTarget !== null} onClose={() => setUnmatchedTarget(null)}>
+        {unmatchedTarget && (
+          <UnmatchedChoiceModal
+            reservation={unmatchedTarget}
+            onClose={() => setUnmatchedTarget(null)}
           />
         )}
       </Modal>
@@ -391,6 +409,52 @@ function GenderColumn({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 매칭 상대를 찾지 못한 경우 안내 - 상태를 바꾸지 않고 메시지만 보여준다.
+ * 답변을 받은 뒤 "취소하기" 또는 "일반 예약으로 전환하기" 버튼으로 이어서 처리해야 함.
+ */
+function UnmatchedChoiceModal({
+  reservation,
+  onClose,
+}: {
+  reservation: Reservation;
+  onClose: () => void;
+}) {
+  return (
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        매칭 안됨 안내
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        아래 메시지를 복사해서 카카오톡으로 보내주세요. 답변을 받으면 이 목록에서 다시
+        선택해 &quot;취소하기&quot; 또는 &quot;일반 예약으로 전환하기&quot;로 이어서
+        처리하면 됩니다(이 창에서는 상태가 바뀌지 않아요).
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyButton text={reservation.phone} label="전화번호 복사" />
+      </div>
+
+      <div className="mt-3">
+        <ReservationDetails reservation={reservation} defaultOpen />
+      </div>
+
+      <div className="mt-4">
+        <CopyableMessage
+          label={reservation.representativeName}
+          text={buildMatchingUnmatchedMessage(reservation)}
+        />
+      </div>
+
+      <div className="mt-5 flex justify-end">
+        <Button variant="secondary" onClick={onClose}>
+          닫기
+        </Button>
+      </div>
     </div>
   );
 }

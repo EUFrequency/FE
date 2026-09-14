@@ -1,7 +1,7 @@
 "use server";
 
 import { getBoothLight } from "@/app/admin/_lib/firestore-booths";
-import { getDepartments } from "@/app/admin/_lib/firestore-settings";
+import { getDepartments, getOverbookLimit } from "@/app/admin/_lib/firestore-settings";
 import {
   createReservation,
   hasReservationForPhone,
@@ -154,9 +154,9 @@ export async function submitReservationAction(
     }
 
     // 4) 주점 확인 + 정원 슬롯 계산
-    //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나.
-    //    일반이면 인원수 제한 없이, 실제 테이블 배정(단일/조합)은 createReservation 트랜잭션에서
-    //    현재 정원 현황을 보고 계산한다 (여러 테이블 조합 가능 - slots.ts의 resolveGeneralTableCombo).
+    //    매칭이면 인원=테이블 정원 정확히 일치하는 테이블 하나(오버부킹 포함).
+    //    일반이면 인원수 구간(밴드)에 맞는 테이블 정원 하나(오버부킹 없음) - 실제 배정은
+    //    createReservation 트랜잭션에서 현재 정원 현황을 보고 계산한다 (slots.ts의 resolveGeneralSlot).
     const booth = await getBoothLight(input.boothId);
     if (!booth) return { ok: false, error: "주점 정보를 찾을 수 없습니다." };
     if (!booth.timeSlots.some((s) => formatTimeSlot(s) === input.time)) {
@@ -165,10 +165,15 @@ export async function submitReservationAction(
 
     let slot: CreateReservationSlot;
     if (input.matching) {
-      const resolved = resolveMatchingSlot(booth.tables, {
-        gender: (input.matchingGender as MatchingGender) ?? null,
-        headcount: input.headcount,
-      });
+      const overbookLimit = await getOverbookLimit();
+      const resolved = resolveMatchingSlot(
+        booth.tables,
+        {
+          gender: (input.matchingGender as MatchingGender) ?? null,
+          headcount: input.headcount,
+        },
+        overbookLimit,
+      );
       if (!resolved.ok) return { ok: false, error: resolved.reason };
       slot = {
         kind: "matching",

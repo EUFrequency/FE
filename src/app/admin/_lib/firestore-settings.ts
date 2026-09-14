@@ -1,10 +1,12 @@
 import "server-only";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { DEPARTMENTS as DEFAULT_DEPARTMENTS } from "@/app/festival/data";
+import { DEFAULT_OVERBOOK_LIMIT } from "./types";
 
 const COLLECTION = "settings";
 const CONTACT_DOC = "contact";
 const DEPARTMENTS_DOC = "departments";
+const OVERBOOK_DOC = "overbook";
 
 /**
  * 대표 문의 연락처 - 전화번호 또는 오픈채팅 등 링크 하나만 등록(단일 문서).
@@ -43,4 +45,27 @@ export async function setDepartments(list: string[]): Promise<void> {
     .collection(COLLECTION)
     .doc(DEPARTMENTS_DOC)
     .set({ list: cleaned, updatedAt: new Date().toISOString() });
+}
+
+/**
+ * 전체 주점에 공통 적용되는 오버부킹(정원 초과 대기 접수) 허용 수.
+ * 테이블 종류(정원+용도)마다 등록된 테이블 수에 이 값만큼 더 받아준다(매칭은 성별별로 각각 적용).
+ * 문서가 없으면 DEFAULT_OVERBOOK_LIMIT을 씀.
+ */
+export async function getOverbookLimit(): Promise<number> {
+  const snap = await getAdminDb().collection(COLLECTION).doc(OVERBOOK_DOC).get();
+  const value = snap.data()?.value;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : DEFAULT_OVERBOOK_LIMIT;
+}
+
+export async function setOverbookLimit(value: number): Promise<void> {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("오버부킹 허용 수는 0 이상의 정수여야 합니다.");
+  }
+  await getAdminDb()
+    .collection(COLLECTION)
+    .doc(OVERBOOK_DOC)
+    .set({ value, updatedAt: new Date().toISOString() });
 }

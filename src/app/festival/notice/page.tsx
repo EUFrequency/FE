@@ -105,6 +105,12 @@ export default async function FestivalNoticePage() {
                 다르면 확인이 늦어질 수 있어요.
               </li>
               <li>
+                <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                  예약 시간 기준 2시간 이내
+                </b>{" "}
+                입금하지 않으면 예약이 자동 취소 처리됩니다.
+              </li>
+              <li>
                 예약 내용을 변경하거나 취소하고 싶으시면{" "}
                 <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                   이 페이지 하단에 있는 인스타그램 DM
@@ -118,9 +124,12 @@ export default async function FestivalNoticePage() {
             </ul>
           </Section>
 
-          <Section num={5} title="대기(오버부킹) 예약 안내" accent>
+          <Section num={5} title="대기 예약 안내" accent>
             <p>
-              원하시는 시간대의 자리가 이미 다 찼어도, 저희가 여유분으로 몇 팀 더
+              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                과팅(매칭) 예약
+              </b>
+              은 원하시는 시간대의 자리가 이미 다 찼어도, 저희가 여유분으로 몇 팀 더
               접수를 받아요. 이 경우 예약 화면에{" "}
               <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                 몇 번째 대기인지(대기 1번, 2번...)
@@ -146,7 +155,8 @@ export default async function FestivalNoticePage() {
             </p>
             <p className="mt-3">
               대기 순번이 당겨지거나 확정/취소 안내는 모두 카카오톡으로 개별
-              연락드리니 꼭 확인해주세요.
+              연락드리니 꼭 확인해주세요. (일반 예약은 대기 접수 없이, 자리가 없으면
+              예약 화면에서 바로 안내됩니다.)
             </p>
           </Section>
 
