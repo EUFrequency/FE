@@ -179,6 +179,11 @@ export type MinOrderRule = {
   minAmount: number;
 };
 
+/** 주점 특징 태그(인스타그램 해시태그 느낌) - 한 주점당 최대 이 개수까지 등록 가능 */
+export const MAX_BOOTH_TAGS = 3;
+/** 태그 하나당 최대 글자 수 */
+export const MAX_BOOTH_TAG_LENGTH = 5;
+
 export type AdminBooth = {
   id: string;
   /** 이 주점을 운영하는 학과/동아리 등 (배치도·공개 페이지 표시용) */
@@ -188,6 +193,8 @@ export type AdminBooth = {
   ownerPhone: string | null;
   descriptionText: string;
   descriptionImages: string[]; // data URL 목록
+  /** 주점 특징 태그 - 배치도 카드·소개 모달에 "매칭" 배지와 같은 스타일로 표시됨 (최대 MAX_BOOTH_TAGS개) */
+  tags: string[];
   menus: MenuItem[];
   minOrderRules: MinOrderRule[];
   tables: TableConfig[];

@@ -22,6 +22,7 @@ type BoothDocData = {
   ownerName: string;
   ownerPhone: string | null;
   descriptionText: string;
+  tags?: string[];
   minOrderRules?: MinOrderRule[];
   /** @deprecated minOrderRules 도입 전 문서 호환용 - 고정 금액 하나였음 */
   minOrder?: number;
@@ -68,6 +69,7 @@ function toLightBooth(id: string, data: BoothDocData): AdminBooth {
     ownerPhone: data.ownerPhone ?? null,
     descriptionText: data.descriptionText,
     descriptionImages: [],
+    tags: data.tags ?? [],
     menus: (data.menus ?? []).map((m) => ({ ...m, image: "" })),
     minOrderRules: normalizeMinOrderRules(data.minOrderRules, data.minOrder),
     tables: normalizeTables(data.tables),
@@ -107,6 +109,7 @@ async function hydrateBoothWithImages(
     ownerPhone: data.ownerPhone ?? null,
     descriptionText: data.descriptionText,
     descriptionImages,
+    tags: data.tags ?? [],
     menus: (data.menus ?? []).map((m) => ({
       ...m,
       image: menuImageByMenuId.get(m.id) ?? "",
@@ -162,6 +165,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
     ownerName: booth.ownerName,
     ownerPhone: booth.ownerPhone,
     descriptionText: booth.descriptionText,
+    tags: booth.tags,
     minOrderRules: booth.minOrderRules,
     tables: booth.tables,
     timeSlots: booth.timeSlots,

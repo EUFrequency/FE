@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createId } from "../../_lib/id";
 import { formatPhoneInput } from "@/lib/phone";
 import { resizeImageFile, resizeImageFiles } from "../../_lib/files";
-import { MAX_GENERAL_HEADCOUNT } from "../../_lib/types";
+import { MAX_BOOTH_TAG_LENGTH, MAX_BOOTH_TAGS, MAX_GENERAL_HEADCOUNT } from "../../_lib/types";
 import type { AdminBooth, MenuItem, MinOrderRule, TableConfig, TimeSlot } from "../../_lib/types";
 import { AccountManager } from "../AccountManager";
 import { Button, Checkbox, Input, Label, Textarea } from "../ui";
@@ -54,6 +54,8 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const [descriptionImages, setDescriptionImages] = useState<string[]>(
     initial?.descriptionImages ?? [],
   );
+  const [tags, setTags] = useState<string[]>(initial?.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
   const [menus, setMenus] = useState<MenuItem[]>(
     initial?.menus.length ? initial.menus : [emptyMenu()],
   );
@@ -109,6 +111,13 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
     }
   }
 
+  function addTag() {
+    const value = tagInput.trim().replace(/^#/, "").slice(0, MAX_BOOTH_TAG_LENGTH);
+    if (!value || tags.length >= MAX_BOOTH_TAGS) return;
+    setTags((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setTagInput("");
+  }
+
   function addAlias() {
     const value = aliasInput.trim();
     if (!value) return;
@@ -137,6 +146,7 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
       ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
       descriptionText: descriptionText.trim(),
       descriptionImages,
+      tags,
       menus: validMenus,
       minOrderRules: [...validMinOrderRules].sort((a, b) => a.maxHeadcount - b.maxHeadcount),
       tables: tables.filter((t) => t.capacity > 0),
@@ -266,6 +276,58 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
             </label>
           )}
         </div>
+      </div>
+
+      {/* 특징 태그 */}
+      <div className="mt-6">
+        <Label
+          hint={`(최대 ${MAX_BOOTH_TAGS}개, 태그당 최대 ${MAX_BOOTH_TAG_LENGTH}글자, 배치도·소개 화면에 "매칭" 배지와 같은 자리에 표시됨)`}
+        >
+          특징 태그 ({tags.length}/{MAX_BOOTH_TAGS})
+        </Label>
+        <div className="mt-1.5 flex gap-2">
+          <Input
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value.slice(0, MAX_BOOTH_TAG_LENGTH))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addTag();
+              }
+            }}
+            placeholder="예: 무한리필"
+            maxLength={MAX_BOOTH_TAG_LENGTH}
+            disabled={tags.length >= MAX_BOOTH_TAGS}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={addTag}
+            disabled={tags.length >= MAX_BOOTH_TAGS}
+          >
+            추가
+          </Button>
+        </div>
+        {tags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white py-1 pl-3 pr-1 text-sm text-neutral-800 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100"
+              >
+                #{tag}
+                <button
+                  type="button"
+                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
+                  className="grid h-5 w-5 place-items-center rounded-full text-neutral-400 transition hover:bg-black/5 hover:text-neutral-600 dark:hover:bg-white/10 dark:hover:text-neutral-300"
+                  aria-label={`${tag} 삭제`}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 메뉴 정보 */}
