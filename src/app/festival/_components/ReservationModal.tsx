@@ -1109,8 +1109,11 @@ function MatchingInfoDialog({
             의 비용이 추가되며, 이 금액의 일부는 후원됩니다.
           </p>
           <p className="mt-2">
-            매칭 실패한 경우 취소 또는 그냥 자기들끼리 이용 여부를 카톡으로
-            안내할 예정입니다.
+            매칭 실패한 경우 취소 또는 매칭 상대 없이 예약자분들끼리 이용하실지
+            여부를 카톡으로 안내할 예정입니다.
+          </p>
+          <p className="mt-2">
+            매칭 확정 카톡을 받으신 이후로는 예약 취소가 불가능합니다.
           </p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-2">

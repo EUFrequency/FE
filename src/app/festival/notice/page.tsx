@@ -47,6 +47,7 @@ export default async function FestivalNoticePage() {
           </h1>
           <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-400">
             예약을 확정하신 분들은 아래 내용을 꼭 확인해주세요.
+            <br />각 주점별로 유의사항이 상이하니 주점별 유의사항도 참고 부탁드립니다.
           </p>
         </header>
 
