@@ -112,7 +112,7 @@ export default async function FestivalNoticePage() {
                 <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                   예약 시간 기준 2시간 이내
                 </b>{" "}
-                입금하지 않으면 예약이 자동 취소 처리됩니다.
+                입금이 확인되지 않으면 예약이 취소됩니다.
               </li>
               <li>
                 예약 내용을 변경하거나 취소하고 싶으시면{" "}
@@ -150,7 +150,8 @@ export default async function FestivalNoticePage() {
                   <b className="font-semibold text-neutral-800 dark:text-neutral-100">
                     {reservationDeadline}
                   </b>
-                  )까지 취소하시는 분이 없다면 아쉽게도 이용이 제한될 수 있습니다.
+                  )까지 취소하시는 분이 없다면 아쉽게도 이용이 제한될 수 있습니다.{" "}
+                  이 경우 입금하신 금액은 전액 환불해드립니다.
                 </>
               )}
             </p>
