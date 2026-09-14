@@ -566,8 +566,10 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
         </div>
         <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
           매칭 전용 테이블의 인원수는 <b className="font-medium">양 팀을 합친 정원</b>이에요.
-          예를 들어 6인으로 등록하면 3인 팀 : 3인 팀이 매칭되는 테이블이라는 뜻이라, 예약자는
-          3인으로 신청해야 이 테이블에 배정됩니다. 그래서 홀수 정원은 등록할 수 없어요.
+          예를 들어 8인으로 등록하면 한 팀당 최대 4인까지 신청할 수 있고, 정원의 절반 이하면
+          더 작은 팀(예: 2인 팀, 3인 팀)도 남는 자리를 비워둔 채 배정됩니다 - 단 1:1 매칭은
+          받지 않아서 최소 2인 팀부터 가능해요. 홀수 정원은 반으로 나눌 수 없어 등록할 수
+          없습니다.
         </p>
         <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
           각 테이블 종류마다 정원 외에 오버부킹 3팀까지 추가로 접수받습니다(매칭 전용은

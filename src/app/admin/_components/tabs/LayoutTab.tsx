@@ -6,6 +6,11 @@ import { getLayoutAction, saveLayoutAction } from "../../_lib/layout-actions";
 import type { SeasonLayout } from "../../_lib/types";
 import { Badge, Button, Card, Input, Label, Select } from "../ui";
 
+// 사용자 화면(모바일, 440px 안팎)에서 격자가 그대로 보여야 해서 상한을 둠 - 이보다 크면
+// 칸이 너무 작아져 못 알아봄(BoothMap.tsx 참고)
+const MAX_ROWS = 4;
+const MAX_COLS = 8;
+
 export function LayoutTab() {
   const { state } = useAdminStore();
   const [seasonId, setSeasonId] = useState<string>(
@@ -203,25 +208,29 @@ function LayoutEditor({ seasonId }: { seasonId: string }) {
     <div className="space-y-5">
       <Card className="flex flex-wrap items-end gap-3 p-4">
         <label className="block">
-          <Label>행 (M)</Label>
+          <Label hint={`최대 ${MAX_ROWS}`}>행 (M)</Label>
           <Input
             className="mt-1.5 w-24"
             type="number"
             min={1}
-            max={20}
+            max={MAX_ROWS}
             value={rows}
-            onChange={(e) => setRows(Number(e.target.value))}
+            onChange={(e) =>
+              setRows(Math.min(MAX_ROWS, Math.max(1, Number(e.target.value) || 1)))
+            }
           />
         </label>
         <label className="block">
-          <Label>열 (N)</Label>
+          <Label hint={`최대 ${MAX_COLS}`}>열 (N)</Label>
           <Input
             className="mt-1.5 w-24"
             type="number"
             min={1}
-            max={20}
+            max={MAX_COLS}
             value={cols}
-            onChange={(e) => setCols(Number(e.target.value))}
+            onChange={(e) =>
+              setCols(Math.min(MAX_COLS, Math.max(1, Number(e.target.value) || 1)))
+            }
           />
         </label>
         <Button variant="secondary" onClick={applyGrid}>

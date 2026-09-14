@@ -58,6 +58,9 @@ export const MIN_GENERAL_HEADCOUNT = 2;
  */
 export const MAX_GENERAL_HEADCOUNT = 20;
 
+/** 과팅(매칭) 팀 최소 인원 - 1:1 매칭은 받지 않음(반드시 2인 이상 팀끼리만 매칭) */
+export const MIN_MATCHING_HEADCOUNT = 2;
+
 export type ReservationStatus = "pending" | "approved" | "rejected";
 export type MatchingGender = "male" | "female";
 

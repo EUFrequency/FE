@@ -1,5 +1,6 @@
 import {
   MIN_GENERAL_HEADCOUNT,
+  MIN_MATCHING_HEADCOUNT,
   type MatchingGender,
   type Reservation,
   type TableConfig,
@@ -47,9 +48,10 @@ export type SlotResolution =
 /**
  * 매칭 예약이 어느 테이블 슬롯에 들어가는지 계산.
  * "매칭 전용" 테이블의 정원은 테이블 전체(양 팀 합) 기준으로 등록됨
- * (예: 8인 매칭 테이블 = 최대 4인 팀 : 4인 팀). 한 팀의 인원수는 테이블 정원의 절반
- * 이하면 되고(headcount * 2 <= capacity), 꼭 절반을 다 채우지 않아도 된다 - 예를 들어
- * 8인 테이블에서도 3:3처럼 더 작은 팀이 앉고 남는 자리는 비워둘 수 있음. 후보가 여러
+ * (예: 8인 매칭 테이블 = 최대 4인 팀 : 4인 팀). 한 팀의 인원수는 MIN_MATCHING_HEADCOUNT
+ * 이상이면서 테이블 정원의 절반 이하면 되고(headcount * 2 <= capacity), 꼭 절반을 다
+ * 채우지 않아도 된다 - 예를 들어 8인 테이블에서도 3:3처럼 더 작은 팀이 앉고 남는 자리는
+ * 비워둘 수 있음(단, 1:1은 MIN_MATCHING_HEADCOUNT로 막혀 있어 불가). 후보가 여러
  * 개면(예: 6인·8인 테이블이 둘 다 있을 때 3인 팀) 남는 자리가 가장 적은(가장 작은 정원)
  * 테이블을 우선 배정한다. 홀수 정원 테이블은 반으로 나눌 수 없어 매칭 대상에서 제외.
  *
@@ -63,8 +65,11 @@ export function resolveMatchingSlot(
   input: { gender: MatchingGender | null; headcount: number },
   overbookLimit: number,
 ): SlotResolution {
-  if (!Number.isInteger(input.headcount) || input.headcount < 1) {
-    return { ok: false, reason: "인원수가 올바르지 않습니다." };
+  if (!Number.isInteger(input.headcount) || input.headcount < MIN_MATCHING_HEADCOUNT) {
+    return {
+      ok: false,
+      reason: `과팅 예약은 ${MIN_MATCHING_HEADCOUNT}인 이상 팀만 가능합니다(1:1 매칭은 받지 않습니다).`,
+    };
   }
   if (!input.gender) return { ok: false, reason: "팀 성별을 선택해주세요." };
 
@@ -146,16 +151,16 @@ export function resolveGeneralSlot(
 
 /**
  * 매칭 예약에서 고를 수 있는 "팀 인원수" 목록 (오름차순).
- * 매칭 전용 테이블의 정원은 양 팀 합계라서, 정원의 절반 이하 인원이면 어떤 크기든
- * 그 테이블에 앉을 수 있다 (예: 8인 테이블 → 1~4인 팀 전부 가능, 3:3처럼 남는 자리를
- * 비워둬도 됨 - resolveMatchingSlot 참고). 홀수 정원(반으로 못 나눔)은 잘못 등록된 것으로
- * 보고 제외.
+ * 매칭 전용 테이블의 정원은 양 팀 합계라서, MIN_MATCHING_HEADCOUNT 이상이면서 정원의
+ * 절반 이하 인원이면 그 테이블에 앉을 수 있다 (예: 8인 테이블 → 2~4인 팀 가능, 3:3처럼
+ * 남는 자리를 비워둬도 됨 - resolveMatchingSlot 참고). 1:1은 1:1 매칭을 받지 않기로
+ * 해서 애초에 옵션에 안 나옴. 홀수 정원(반으로 못 나눔)은 잘못 등록된 것으로 보고 제외.
  */
 export function matchingHeadcountOptions(tables: TableConfig[]): number[] {
   const usable = tables.filter((t) => t.forMatching && t.count > 0 && t.capacity % 2 === 0);
   const options = new Set<number>();
   for (const t of usable) {
-    for (let size = 1; size <= t.capacity / 2; size++) options.add(size);
+    for (let size = MIN_MATCHING_HEADCOUNT; size <= t.capacity / 2; size++) options.add(size);
   }
   return Array.from(options).sort((a, b) => a - b);
 }

@@ -152,6 +152,8 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
     name: m.name,
     description: m.description,
     price: m.price,
+    perPersonRequired: m.perPersonRequired ?? false,
+    excludeFromMinOrder: m.excludeFromMinOrder ?? false,
   }));
 
   const docData: BoothDocData = {

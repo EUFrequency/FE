@@ -10,7 +10,7 @@ import { Modal } from "./Modal";
 import { getPublicBoothAction } from "../_lib/booth-actions";
 import { accentFor, withAccents, type FestivalBooth } from "../_lib/palette";
 import { formatPeriod } from "@/lib/kst";
-import type { Account, AdminBooth, Season } from "@/app/admin/_lib/types";
+import type { Account, AdminBooth, Season, SeasonLayout } from "@/app/admin/_lib/types";
 
 type Flow = "closed" | "detail" | "reservation" | "success";
 
@@ -21,6 +21,7 @@ export function FestivalClient({
   generalOpen,
   matchingOpen,
   departments,
+  layout,
 }: {
   booths: AdminBooth[];
   season: Season | null;
@@ -32,6 +33,8 @@ export function FestivalClient({
   matchingOpen: boolean;
   /** 예약 폼의 학과 선택지 (관리자 페이지에서 관리) */
   departments: string[];
+  /** 관리자 "주점 배치" 탭에서 저장한 배치도. 저장한 적 없으면 null(목록으로 대체 표시) */
+  layout: SeasonLayout | null;
 }) {
   // 배치도용 - 이미지 없이 가벼움. 목록 화면은 이거로 충분.
   const boothsWithAccent = useMemo(() => withAccents(booths), [booths]);
@@ -144,7 +147,7 @@ export function FestivalClient({
               조회 기간: {formatPeriod(season.viewStartDate, season.viewEndDate)}
             </LockedNotice>
           ) : (
-            <BoothMap booths={boothsWithAccent} onSelect={openDetail} />
+            <BoothMap booths={boothsWithAccent} layout={layout} onSelect={openDetail} />
           )}
         </div>
 
