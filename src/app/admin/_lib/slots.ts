@@ -154,6 +154,19 @@ export function resolveGeneralTableCombo(
   return null;
 }
 
+/**
+ * headcount가 테이블 하나(오버부킹 포함)만으로 들어가는지만 확인 - 여러 테이블로 쪼개지는
+ * 조합은 절대 찾지 않는다. resolveGeneralCombo의 오버부킹 단계에서 쓰임(아래 설명 참고).
+ */
+function resolveSingleTableCombo(
+  availability: GeneralTableAvailability[],
+  headcount: number,
+): TableUsage[] | null {
+  const usable = availability.filter((a) => a.capacity > 0 && a.available > 0);
+  if (usable.length === 0 || headcount <= 0) return null;
+  return bestGeneralComboOfSize(usable, 1, headcount);
+}
+
 function bestGeneralComboOfSize(
   usable: GeneralTableAvailability[],
   size: number,
@@ -212,7 +225,16 @@ export type GeneralComboResolution =
  * 일반 예약이 어느 테이블 조합에 배정되는지 계산. 등록된 테이블만으로 조합을 먼저
  * 찾고(zone: normal), 그걸로 인원을 못 채우면 오버부킹 버퍼까지 포함해서 다시 찾는다
  * (zone: overbook) - 오버부킹은 정상 배정이 불가능할 때만 쓰이는 마지막 수단이라, 굳이
- * 필요하지 않은데 오버부킹 조합을 골라버리는 일이 없다. 둘 다 안 되면 실패.
+ * 필요하지 않은데 오버부킹 조합을 골라버리는 일이 없다.
+ *
+ * 오버부킹은 테이블 하나로 해결되는 예약에만 허용한다 - 정원 현황 화면은 테이블
+ * 정원별로 따로 카운터를 세기 때문에(예약 단위로 묶어서 보여주지 않음), 한 예약이
+ * 여러 테이블로 쪼개지는데 그중 한 조각만 오버부킹이 필요하면 같은 예약인데도 어떤
+ * 테이블 칸은 "정상 대기"(노란색)로, 다른 칸은 "오버부킹 대기"(빨간색)로 따로 보여서
+ * 예약 하나의 상태가 갈라져 보이는 문제가 생긴다. 그래서 여러 테이블로 쪼개야만
+ * 채울 수 있는 인원인데 정상 조합(1차)이 없으면, 오버부킹(2차)도 시도하지 않고
+ * 그 자리에서 접수를 막는다 - 이러면 오버부킹으로 확정되는 예약은 항상 테이블
+ * 하나짜리라 화면에 두 상태로 갈라져 보일 일이 없다.
  *
  * @param activeByCapacity 정원별 현재 활성(대기+승인) 예약 수 - tx.get()으로 읽어온 값을 넘겨야 함
  * @param overbookLimit 정원 대비 추가로 받아줄 팀 수 - firestore-settings.ts의 getOverbookLimit()으로 가져온 값을 넘겨야 함
@@ -256,11 +278,16 @@ export function resolveGeneralCombo(
     };
   }
 
-  // 2차: 그래도 안 되면 오버부킹 버퍼까지 포함해서 다시 찾는다
+  // 2차: 오버부킹 버퍼까지 포함해서 다시 찾되, 테이블 하나로 끝나는 조합만 허용한다
+  // (위 함수 설명 참고 - 여러 테이블로 쪼개지는 예약은 오버부킹을 아예 시도하지 않음)
   const overbookAvailability = generalTableAvailability(tables, activeByCapacity, overbookLimit);
-  combo = resolveGeneralTableCombo(overbookAvailability, headcount);
+  combo = resolveSingleTableCombo(overbookAvailability, headcount);
   if (!combo) {
-    return { ok: false, reason: "인원에 맞는 자리가 없습니다." };
+    return {
+      ok: false,
+      reason:
+        "지금은 인원에 맞는 자리가 없습니다. 여러 테이블로 나눠야 하는 예약은 오버부킹(추가 대기)으로 받지 않으니, 정원이 빌 때까지 기다리시거나 인원을 나눠 예약해주세요.",
+    };
   }
 
   const registeredByCapacity = new Map<number, number>();
