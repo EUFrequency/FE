@@ -68,7 +68,10 @@ export default async function FestivalNoticePage() {
                 별칭을 배정
               </b>
               해 드려요. 매칭 성사 여부는 카카오톡으로 안내드리며, 현장에서는 이 별칭으로
-              서로를 확인하시면 됩니다.
+              서로를 확인하시면 됩니다.{" "}
+              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                매칭이 확정된 이후에는 예약 취소가 불가능합니다.
+              </b>
             </p>
             <p className="mt-3">
               아쉽게 매칭 상대를 찾지 못한 경우, 예약을 취소해드리거나 상대 팀 매칭 없이
@@ -158,17 +161,14 @@ export default async function FestivalNoticePage() {
           </Section>
 
           <Section num={6} title="이 밖에 꼭 알아두세요">
-            <ul className="list-inside list-disc space-y-2 marker:text-amber-500">
-              <li>
-                같은 전화번호로는{" "}
-                <b className="font-semibold text-neutral-800 dark:text-neutral-100">
-                  같은 날짜에 시간이 겹치는 예약은 한 건만
-                </b>{" "}
-                가능해요(다른 주점이어도 마찬가지입니다). 시간대가 겹치지 않으면 같은
-                번호로 또 예약하실 수 있습니다.
-              </li>
-              <li>남겨주신 전화번호는 예약 확인·환불 안내 목적으로만 사용됩니다.</li>
-            </ul>
+            <p>
+              같은 전화번호로는{" "}
+              <b className="font-semibold text-neutral-800 dark:text-neutral-100">
+                같은 날짜에 시간이 겹치는 예약은 한 건만
+              </b>{" "}
+              가능해요(다른 주점이어도 마찬가지입니다). 시간대가 겹치지 않으면 같은
+              번호로 또 예약하실 수 있습니다.
+            </p>
           </Section>
         </div>
 
