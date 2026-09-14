@@ -760,7 +760,7 @@ function Step1({
                     <div className="font-semibold text-neutral-900 dark:text-neutral-50">
                       {menu.name}
                     </div>
-                    <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    <div className="mt-1 whitespace-pre-line text-xs text-neutral-500 dark:text-neutral-400">
                       {menu.description}
                     </div>
                   </div>

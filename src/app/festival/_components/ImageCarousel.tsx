@@ -26,13 +26,13 @@ export function ImageCarousel({ images }: { images: string[] }) {
         className="no-scrollbar flex snap-x snap-mandatory overflow-x-auto scroll-smooth"
       >
         {images.map((src, i) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <div
             key={i}
-            src={src}
-            alt=""
-            className="aspect-[4/3] w-full flex-shrink-0 snap-center object-cover"
-          />
+            className="flex h-80 w-full flex-shrink-0 snap-center items-center justify-center bg-neutral-100 dark:bg-neutral-900"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt="" className="h-full w-full object-contain" />
+          </div>
         ))}
       </div>
       {images.length > 1 && (

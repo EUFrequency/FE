@@ -73,7 +73,9 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const validMenus = menus.filter((m) => m.name.trim() && m.price > 0);
+  const validMenus = menus.filter(
+    (m) => m.name.trim() && Number.isFinite(m.price) && m.price >= 0,
+  );
   // 매칭 전용 테이블은 양 팀으로 반씩 나눠야 해서 홀수 정원이면 저장을 막음
   const hasOddMatchingTable = tables.some(
     (t) => t.forMatching && t.capacity > 0 && t.capacity % 2 !== 0,
@@ -297,7 +299,8 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
                   )
                 }
               />
-              <Input
+              <Textarea
+                rows={2}
                 value={menu.description}
                 placeholder="메뉴 설명"
                 onChange={(e) =>

@@ -53,7 +53,7 @@ export function BoothDetailModal({
           <h2 className="mt-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
             {booth.name}
           </h2>
-          <p className="mt-4 text-sm leading-6 text-neutral-600 dark:text-neutral-300">
+          <p className="mt-4 whitespace-pre-line text-sm leading-6 text-neutral-600 dark:text-neutral-300">
             {booth.descriptionText}
           </p>
 
@@ -80,7 +80,7 @@ export function BoothDetailModal({
                       <div className="font-semibold text-neutral-900 dark:text-neutral-50">
                         {menu.name}
                       </div>
-                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                      <div className="mt-1 whitespace-pre-line text-xs text-neutral-500 dark:text-neutral-400">
                         {menu.description}
                       </div>
                     </div>

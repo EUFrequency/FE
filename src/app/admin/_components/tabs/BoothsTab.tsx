@@ -160,7 +160,7 @@ export function BoothsTab() {
                     최소 {lowestMinOrderAmount(booth.minOrderRules).toLocaleString()}원~
                   </Badge>
                 </div>
-                <p className="mt-3 line-clamp-2 text-sm text-neutral-600 dark:text-neutral-300">
+                <p className="mt-3 line-clamp-2 whitespace-pre-line text-sm text-neutral-600 dark:text-neutral-300">
                   {booth.descriptionText}
                 </p>
                 <div className="mt-3 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
