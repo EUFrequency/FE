@@ -38,6 +38,7 @@ export function MatchingTab() {
   const [boothFilter, setBoothFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [timeFilter, setTimeFilter] = useState("all");
+  const [matchFilter, setMatchFilter] = useState<"all" | "matched" | "unmatched">("all");
   const [selected, setSelected] = useState<{ male: string | null; female: string | null }>({
     male: null,
     female: null,
@@ -81,10 +82,12 @@ export function MatchingTab() {
           (r) =>
             (boothFilter === "all" || r.boothId === boothFilter) &&
             (dateFilter === "all" || r.date === dateFilter) &&
-            (timeFilter === "all" || r.time === timeFilter),
+            (timeFilter === "all" || r.time === timeFilter) &&
+            (matchFilter === "all" ||
+              (matchFilter === "matched" ? !!r.pairedWith : !r.pairedWith)),
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    [confirmedMatching, boothFilter, dateFilter, timeFilter],
+    [confirmedMatching, boothFilter, dateFilter, timeFilter, matchFilter],
   );
 
   const males = useMemo(() => filtered.filter((r) => r.matchingGender === "male"), [filtered]);
@@ -226,6 +229,15 @@ export function MatchingTab() {
                 {t}
               </option>
             ))}
+          </Select>
+          <Select
+            className="w-32"
+            value={matchFilter}
+            onChange={(e) => setMatchFilter(e.target.value as "all" | "matched" | "unmatched")}
+          >
+            <option value="all">매칭 전체</option>
+            <option value="matched">매칭됨</option>
+            <option value="unmatched">매칭 안됨</option>
           </Select>
         </div>
       </div>

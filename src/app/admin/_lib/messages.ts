@@ -40,7 +40,7 @@ export function buildRejectionMessage(r: Reservation): string {
   ].join("\n");
 }
 
-/** 이미 확정된 매칭 예약을 취소할 때 안내 - 반려와 달리 입금이 이미 확인된 상태라 환불 안내 포함 */
+/** 이미 확정(승인)된 예약을 취소할 때 안내 - 반려와 달리 입금이 이미 확인된 상태라 환불 안내 포함 (매칭·일반 공통) */
 export function buildMatchingCancelMessage(r: Reservation): string {
   return [
     `안녕하세요 ${r.representativeName}님, 부득이하게 ${formatDateKorean(
@@ -67,11 +67,12 @@ export function buildMatchingPairedMessage(r: Reservation, alias: string): strin
  * 답변을 받은 뒤엔 매칭 관리 탭의 "취소하기" 또는 "일반 예약으로 전환하기"로 이어서 처리.
  */
 export function buildMatchingUnmatchedMessage(r: Reservation): string {
+  const maxHeadcount = r.headcount * 2;
   return [
     `안녕하세요 ${r.representativeName}님, 아쉽게도 ${formatDateKorean(
       r.date,
     )} ${formatTimeWithParens(r.time)} 과팅 매칭 상대를 아직 찾지 못했습니다.`,
-    `① 상대 팀 없이 예약자분들끼리 그대로 이용 ② 예약 취소(입금액 환불) 중 편하신 쪽을 알려주시면 바로 처리해드릴게요.`,
+    `① 상대 팀 없이 예약자분들끼리 그대로 이용(이 경우 최대 ${r.headcount}명까지 더 불러서 총 ${maxHeadcount}명까지 이용 가능하며, 추가 인원분 메뉴는 현장에서 주문해주세요) ② 예약 취소(입금액 환불) 중 편하신 쪽을 알려주시면 바로 처리해드릴게요.`,
   ].join("\n");
 }
 

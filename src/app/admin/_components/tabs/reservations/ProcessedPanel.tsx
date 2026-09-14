@@ -2,9 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useAdminStore } from "../../../_lib/store";
-import { unpairReservationAction } from "../../../_lib/reservation-actions";
-import type { ReservationStatus } from "../../../_lib/types";
-import { Card, EmptyState, Label, Select } from "../../ui";
+import {
+  rejectReservationAction,
+  unpairReservationAction,
+} from "../../../_lib/reservation-actions";
+import { buildMatchingCancelMessage } from "../../../_lib/messages";
+import type { Reservation, ReservationStatus } from "../../../_lib/types";
+import { Button, Card, EmptyState, Label, Select } from "../../ui";
+import { CopyButton } from "../../CopyButton";
+import { Modal } from "../../Modal";
+import { CopyableMessage } from "./PendingPanel";
 import { ReservationDetails } from "./ReservationDetails";
 
 type ProcessedStatus = Extract<ReservationStatus, "approved" | "rejected">;
@@ -19,6 +26,7 @@ export function ProcessedPanel() {
   const [status, setStatus] = useState<ProcessedStatus>("approved");
   const [boothFilter, setBoothFilter] = useState<string>("all");
   const [unpairError, setUnpairError] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Reservation | null>(null);
 
   const reservationsById = useMemo(
     () => new Map(state.reservations.map((r) => [r.id, r])),
@@ -122,6 +130,7 @@ export function ProcessedPanel() {
                   <th className="px-4 py-3 font-medium">인원</th>
                   <th className="px-4 py-3 font-medium">과팅</th>
                   <th className="px-4 py-3 text-right font-medium">결제 금액</th>
+                  {status === "approved" && <th className="px-4 py-3 font-medium">관리</th>}
                 </tr>
               </thead>
               <tbody>
@@ -159,6 +168,13 @@ export function ProcessedPanel() {
                     <td className="px-4 py-3 text-right font-semibold text-amber-600 dark:text-amber-400">
                       {r.totalAmount.toLocaleString()}원
                     </td>
+                    {status === "approved" && (
+                      <td className="px-4 py-3">
+                        <Button variant="danger" onClick={() => setCancelTarget(r)}>
+                          취소
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -166,6 +182,97 @@ export function ProcessedPanel() {
           </div>
         </Card>
       )}
+
+      <Modal open={cancelTarget !== null} onClose={() => setCancelTarget(null)}>
+        {cancelTarget && (
+          <CancelApprovedModal
+            reservation={cancelTarget}
+            onDone={() => {
+              dispatch({ type: "reservations/reject", payload: { id: cancelTarget.id } });
+              setCancelTarget(null);
+            }}
+            onCancel={() => setCancelTarget(null)}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * 확정(승인)된 예약을 취소 - 매칭 관리 탭의 "취소하기"와 같은 흐름이지만, 매칭이 아닌
+ * 일반 예약도 여기서 취소할 수 있도록 한다(지금까지는 확정된 일반 예약을 취소할 방법이
+ * 관리자 화면에 아예 없었음). 매칭 예약이면 반려 처리 시 서버에서 알아서 짝도 함께 풀어준다
+ * (firestore-reservations.ts의 setReservationStatus 참고) - 상대 예약 자체는 취소되지 않음.
+ */
+function CancelApprovedModal({
+  reservation,
+  onDone,
+  onCancel,
+}: {
+  reservation: Reservation;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmCancel() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await rejectReservationAction(reservation.id);
+      if (!result.ok) throw new Error(result.error);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "취소에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        예약 취소
+      </h2>
+      <p className="mt-1 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+        아래 메시지를 복사해서 카카오톡으로 먼저 보내주세요. &quot;취소 처리&quot;를 눌러야
+        실제로 상태가 바뀝니다.
+        {reservation.matching && reservation.pairedWith && (
+          <> 짝지어진 상대 예약은 취소되지 않고, 짝만 풀립니다.</>
+        )}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CopyButton text={reservation.phone} label="전화번호 복사" />
+        <CopyButton
+          text={`${reservation.bank} ${reservation.accountNumber}`}
+          label="계좌·은행 복사"
+        />
+      </div>
+
+      <div className="mt-3">
+        <ReservationDetails reservation={reservation} defaultOpen />
+      </div>
+
+      <div className="mt-4">
+        <CopyableMessage
+          label={reservation.representativeName}
+          text={buildMatchingCancelMessage(reservation)}
+        />
+      </div>
+
+      {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          닫기
+        </Button>
+        <Button variant="danger" onClick={confirmCancel} disabled={busy}>
+          {busy ? "처리 중..." : "취소 처리"}
+        </Button>
+      </div>
     </div>
   );
 }

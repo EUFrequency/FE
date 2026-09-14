@@ -460,6 +460,15 @@ export type MatchingTableLeftover = {
  * 승인은 성별별로 독립된 정원이라(짝짓기와 무관), 승인된 예약 중 아직 짝이 없는 남/여는
  * "앞으로 서로 짝지어질 수 있다"고 낙관적으로 가정해 max(짝없는 남, 짝없는 여)만큼만
  * 테이블을 쓴다고 본다. 이미 짝지어진 쌍은 테이블 하나를 같이 쓰므로 1개로 센다.
+ *
+ * 이 낙관적 가정은 반드시 "인원수가 같은 팀끼리"만 성립한다 - pairReservations가
+ * 인원수가 다른 두 팀은 애초에 짝짓기를 거부하기 때문. 8인 테이블처럼 한 정원에
+ * 여러 인원수(2·3·4인 팀)가 동시에 들어갈 수 있는 경우, 인원수를 구분하지 않고
+ * 그냥 다 합쳐서 max(짝없는 남, 짝없는 여)를 구하면 "인원수가 달라 절대 못 짝지어지는"
+ * 팀끼리도 서로 자리를 메꿔줄 수 있다고 잘못 가정하게 된다(예: 짝없는 4인 남성팀 1 +
+ * 짝없는 3인 여성팀 1 => 실제로는 테이블 2개가 각각 필요한데 계산은 1개로 나옴).
+ * 그래서 인원수별로 따로 묶어 계산한 뒤 합산한다 - 4인 테이블처럼 애초에 인원수가
+ * 하나뿐인 경우는 그룹이 하나라 기존과 결과가 같다.
  */
 function occupiedMatchingTables(
   reservations: Reservation[],
@@ -467,24 +476,36 @@ function occupiedMatchingTables(
 ): { occupied: number; pendingCount: number } {
   const atCapacity = reservations.filter((r) => r.matching && r.tableCapacity === capacity);
   const pendingCount = atCapacity.filter((r) => r.status === "pending").length;
-  const approved = atCapacity.filter((r) => r.status === "approved");
-  const approvedIds = new Set(approved.map((r) => r.id));
 
-  const counted = new Set<string>();
-  let pairedTables = 0;
-  for (const r of approved) {
-    if (counted.has(r.id) || !r.pairedWith || !approvedIds.has(r.pairedWith)) continue;
-    pairedTables += 1;
-    counted.add(r.id);
-    counted.add(r.pairedWith);
+  const byHeadcount = new Map<number, Reservation[]>();
+  for (const r of atCapacity) {
+    if (!byHeadcount.has(r.headcount)) byHeadcount.set(r.headcount, []);
+    byHeadcount.get(r.headcount)!.push(r);
   }
-  const soloMale = approved.filter(
-    (r) => !counted.has(r.id) && r.matchingGender === "male",
-  ).length;
-  const soloFemale = approved.filter(
-    (r) => !counted.has(r.id) && r.matchingGender === "female",
-  ).length;
-  return { occupied: pairedTables + Math.max(soloMale, soloFemale), pendingCount };
+
+  let occupied = 0;
+  for (const group of byHeadcount.values()) {
+    const approved = group.filter((r) => r.status === "approved");
+    const approvedIds = new Set(approved.map((r) => r.id));
+
+    const counted = new Set<string>();
+    let pairedTables = 0;
+    for (const r of approved) {
+      if (counted.has(r.id) || !r.pairedWith || !approvedIds.has(r.pairedWith)) continue;
+      pairedTables += 1;
+      counted.add(r.id);
+      counted.add(r.pairedWith);
+    }
+    const soloMale = approved.filter(
+      (r) => !counted.has(r.id) && r.matchingGender === "male",
+    ).length;
+    const soloFemale = approved.filter(
+      (r) => !counted.has(r.id) && r.matchingGender === "female",
+    ).length;
+    occupied += pairedTables + Math.max(soloMale, soloFemale);
+  }
+
+  return { occupied, pendingCount };
 }
 
 /**
