@@ -10,7 +10,7 @@ import { AccountManager } from "../AccountManager";
 import { Button, Input, Label, Textarea } from "../ui";
 
 const MAX_DESCRIPTION_IMAGES = 5;
-const MAX_MENUS = 8;
+const MAX_MENUS = 30;
 
 type Props = {
   initial: AdminBooth | null;
