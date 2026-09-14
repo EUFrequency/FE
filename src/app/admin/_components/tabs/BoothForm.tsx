@@ -119,35 +119,46 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
   async function handleMenuImage(menuId: string, fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
-    const url = await resizeImageFile(file);
+    // 메뉴 이미지는 소개 이미지보다 작게 표시되고, 최대 30개까지 붙을 수 있어(MAX_MENUS)
+    // 기본 해상도(960px)를 그대로 쓰면 Firestore 문서 1MB 제한에 쉽게 걸림 - 더 작게 압축
+    const url = await resizeImageFile(file, 640, 0.68);
     setMenus((prev) => prev.map((m) => (m.id === menuId ? { ...m, image: url } : m)));
   }
 
   async function submit() {
     if (!valid || submitting) return;
     setSubmitError(null);
+
+    const booth = {
+      id: initial?.id ?? createId("booth"),
+      department: department.trim(),
+      name: name.trim(),
+      ownerName: ownerName.trim(),
+      ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
+      descriptionText: descriptionText.trim(),
+      descriptionImages,
+      menus: validMenus,
+      minOrderRules: [...validMinOrderRules].sort((a, b) => a.maxHeadcount - b.maxHeadcount),
+      tables: tables.filter((t) => t.capacity > 0),
+      timeSlots: validTimeSlots,
+      accountId,
+      createdAt: initial?.createdAt ?? new Date().toISOString(),
+    };
+
+    // 이미지가 base64로 문서 안에 그대로 들어가서 Firestore 1문서당 1MB 제한에 걸릴 수
+    // 있음 - 서버까지 보냈다가 알 수 없는 에러로 실패하는 대신 여기서 미리 걸러서 안내
+    const estimatedBytes = new Blob([JSON.stringify(booth)]).size;
+    if (estimatedBytes > 950_000) {
+      setSubmitError(
+        `저장할 내용이 너무 큽니다(약 ${Math.round(estimatedBytes / 1024)}KB, 최대 약 950KB). ` +
+          "메뉴/소개 이미지 개수를 줄이거나 용량이 큰 이미지를 다시 올려주세요.",
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await onSubmit(
-        {
-          id: initial?.id ?? createId("booth"),
-          department: department.trim(),
-          name: name.trim(),
-          ownerName: ownerName.trim(),
-          ownerPhone: ownerPhone.trim() ? ownerPhone.trim() : null,
-          descriptionText: descriptionText.trim(),
-          descriptionImages,
-          menus: validMenus,
-          minOrderRules: [...validMinOrderRules].sort(
-            (a, b) => a.maxHeadcount - b.maxHeadcount,
-          ),
-          tables: tables.filter((t) => t.capacity > 0),
-          timeSlots: validTimeSlots,
-          accountId,
-          createdAt: initial?.createdAt ?? new Date().toISOString(),
-        },
-        aliasPool,
-      );
+      await onSubmit(booth, aliasPool);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "저장에 실패했습니다.");
     } finally {
