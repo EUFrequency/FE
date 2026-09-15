@@ -884,7 +884,7 @@ function Step2({
     <div className="space-y-6">
       {overbooked && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6 text-amber-700 dark:text-amber-300">
-          <div className="font-semibold">대기(오버부킹) 예약입니다</div>
+          <div className="font-semibold">대기 예약입니다</div>
           <p className="mt-1 text-xs leading-5">
             현재 이 인원의 테이블이 모두 찼습니다. 앞선 예약이 취소될 경우에만
             이용하실 수 있고, 그렇지 않으면 이용이 어려울 수 있습니다. 확정 여부는
