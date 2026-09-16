@@ -18,6 +18,15 @@ type PendingAction =
   | { type: "approve"; reservation: Reservation }
   | { type: "reject"; reservation: Reservation };
 
+/** 일반 예약이 테이블 하나에 배정됐는데 그 정원이 인원수의 2배 이상이면(예: 3명이 8인 테이블) 낭비 배정으로 본다 */
+function oversizedTableCapacity(r: Reservation): number | null {
+  if (r.matching) return null;
+  const assignment = r.tableAssignment?.length ? r.tableAssignment : [{ capacity: r.tableCapacity, count: 1 }];
+  if (assignment.length !== 1) return null;
+  const { capacity } = assignment[0];
+  return capacity >= r.headcount * 2 ? capacity : null;
+}
+
 /** ISO 문자열 -> "2026년 9월 15일 오후 3:24" (KST) */
 function formatCreatedAt(iso: string): string {
   const d = new Date(iso);
@@ -38,6 +47,7 @@ export function PendingPanel() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [wasteConfirmOpen, setWasteConfirmOpen] = useState(false);
   const [boothFilter, setBoothFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
   const [timeFilter, setTimeFilter] = useState("all");
@@ -78,12 +88,26 @@ export function PendingPanel() {
 
   function requestApprove(r: Reservation) {
     setActionError(null);
+    setWasteConfirmOpen(false);
     setPendingAction({ type: "approve", reservation: r });
   }
 
   function requestReject(r: Reservation) {
     setActionError(null);
     setPendingAction({ type: "reject", reservation: r });
+  }
+
+  /** 승인 버튼 클릭 시 - 인원 대비 과도하게 큰 테이블 배정이면 실제 승인 전에 한 번 더 확인받는다 */
+  function handlePrimaryConfirm() {
+    if (
+      pendingAction?.type === "approve" &&
+      !wasteConfirmOpen &&
+      oversizedTableCapacity(pendingAction.reservation) !== null
+    ) {
+      setWasteConfirmOpen(true);
+      return;
+    }
+    confirmPendingAction();
   }
 
   async function confirmPendingAction() {
@@ -229,11 +253,61 @@ export function PendingPanel() {
             action={pendingAction}
             busy={actionBusy}
             error={actionError}
-            onConfirm={confirmPendingAction}
+            onConfirm={handlePrimaryConfirm}
             onCancel={() => setPendingAction(null)}
           />
         )}
       </Modal>
+
+      <Modal open={wasteConfirmOpen} onClose={() => !actionBusy && setWasteConfirmOpen(false)}>
+        {pendingAction?.type === "approve" && (
+          <OversizedTableConfirmModal
+            reservation={pendingAction.reservation}
+            capacity={oversizedTableCapacity(pendingAction.reservation) ?? 0}
+            busy={actionBusy}
+            onCancel={() => setWasteConfirmOpen(false)}
+            onConfirm={() => {
+              setWasteConfirmOpen(false);
+              confirmPendingAction();
+            }}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function OversizedTableConfirmModal({
+  reservation,
+  capacity,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  reservation: Reservation;
+  capacity: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="p-5">
+      <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+        정원보다 큰 테이블 배정 확인
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-neutral-700 dark:text-neutral-300">
+        {reservation.headcount}명 예약인데 <strong>{capacity}인 테이블</strong>에 배정되어 있습니다.
+        이대로 승인하면 그 테이블의 남는 자리도 함께 확정되어, 나중에 더 큰 인원이 와도 이 테이블은 배정할
+        수 없습니다. 그래도 승인하시겠습니까?
+      </p>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+          취소
+        </Button>
+        <Button variant="primary" onClick={onConfirm} disabled={busy}>
+          {busy ? "처리 중..." : "그래도 승인"}
+        </Button>
+      </div>
     </div>
   );
 }
