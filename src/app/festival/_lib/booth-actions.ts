@@ -23,7 +23,7 @@ const getCachedBoothWithAccount = unstable_cache(
     return { booth, account };
   },
   ["festival-booth-detail"],
-  { revalidate: 60 },
+  { revalidate: 60, tags: ["booths"] },
 );
 
 export async function getPublicBoothAction(id: string): Promise<

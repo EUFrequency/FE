@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_cache, updateTag } from "next/cache";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { nowKST, todayKST } from "@/lib/kst";
 import { isGeneralReservationOpen, isMatchingReservationOpen, isViewOpen } from "./season-status";
@@ -68,12 +69,22 @@ function toSeason(id: string, data: SeasonDocData): Season {
   };
 }
 
-export async function listSeasons(): Promise<Season[]> {
-  const snap = await seasonsCollection().get();
-  return snap.docs
-    .map((doc) => toSeason(doc.id, doc.data() as SeasonDocData))
-    .sort((a, b) => b.startDate.localeCompare(a.startDate));
-}
+/**
+ * /festival 공개 페이지의 오픈/마감 판정(getFestivalData)도 이 함수로 시즌 문서를 가져와
+ * 매번 "지금" 기준으로 새로 계산하므로, 문서 자체만 60초 Data Cache로 감싸도 오픈/마감
+ * 판정은 항상 정확함 - 관리자가 시즌을 추가/수정하거나 강제 오픈/마감을 누르면
+ * "seasons" 태그로 즉시 무효화됨.
+ */
+export const listSeasons = unstable_cache(
+  async (): Promise<Season[]> => {
+    const snap = await seasonsCollection().get();
+    return snap.docs
+      .map((doc) => toSeason(doc.id, doc.data() as SeasonDocData))
+      .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  },
+  ["seasons"],
+  { revalidate: 60, tags: ["seasons"] },
+);
 
 /** startDate~endDate 구간이 다른 시즌과 겹치는지 확인 (excludeId는 비교에서 제외) */
 async function findOverlap(
@@ -152,6 +163,7 @@ export async function addSeason(season: Omit<Season, "status">): Promise<void> {
   }
   const { id, ...rest } = season;
   await seasonsCollection().doc(id).set(rest);
+  updateTag("seasons");
 }
 
 /**
@@ -180,6 +192,7 @@ export async function updateSeason(
     );
   }
   await doc.ref.set(patch);
+  updateTag("seasons");
 }
 
 /**
@@ -190,6 +203,7 @@ export async function updateSeason(
 export async function endSeasonEarly(id: string): Promise<void> {
   const today = todayKST();
   await seasonsCollection().doc(id).update({ endDate: today, earlyEndedAt: today });
+  updateTag("seasons");
 }
 
 type ReservationKind = "general" | "matching";
@@ -238,6 +252,7 @@ export async function forceOpenReservation(
   }
 
   await ref.update(patch);
+  updateTag("seasons");
 }
 
 /**
@@ -255,6 +270,7 @@ export async function forceCloseReservation(
   } else {
     await ref.update({ matchingReservationEndDate: now });
   }
+  updateTag("seasons");
 }
 
 /**
@@ -272,4 +288,5 @@ export async function deleteSeason(id: string): Promise<void> {
   }
 
   await doc.ref.delete();
+  updateTag("seasons");
 }

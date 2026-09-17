@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_cache, updateTag } from "next/cache";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { queueRemoveBoothFromLayout } from "./firestore-layouts";
 import { deleteBoothInventory } from "./firestore-inventory";
@@ -125,11 +126,17 @@ async function hydrateBoothWithImages(
 /**
  * 관리자 목록 화면용 - 이미지 없이 가벼운 필드만 가져옴 (읽기 비용 절약).
  * descriptionImages는 빈 배열, 메뉴의 image는 빈 문자열로 채워짐.
+ * /festival 공개 페이지도 이 함수를 쓰므로 60초 Data Cache로 감싸서 매 요청마다
+ * Firestore를 읽지 않게 함 - 주점 저장/삭제 시 "booths" 태그로 즉시 무효화됨.
  */
-export async function listBoothsLight(): Promise<AdminBooth[]> {
-  const snap = await boothsCollection().orderBy("createdAt", "asc").get();
-  return snap.docs.map((doc) => toLightBooth(doc.id, doc.data() as BoothDocData));
-}
+export const listBoothsLight = unstable_cache(
+  async (): Promise<AdminBooth[]> => {
+    const snap = await boothsCollection().orderBy("createdAt", "asc").get();
+    return snap.docs.map((doc) => toLightBooth(doc.id, doc.data() as BoothDocData));
+  },
+  ["booths-light"],
+  { revalidate: 60, tags: ["booths"] },
+);
 
 /** 수정 모달을 열 때 등, 이미지까지 포함한 완전한 주점 데이터가 필요할 때 사용 (관리자 전용) */
 export async function getBoothWithImages(id: string): Promise<AdminBooth | null> {
@@ -194,6 +201,7 @@ export async function saveBooth(booth: AdminBooth): Promise<void> {
   });
 
   await batch.commit();
+  updateTag("booths");
 }
 
 /** 주점 삭제 + 그 이미지 서브컬렉션 + 모든 시즌 배치도에 남아있는 참조까지 함께 정리 */
@@ -209,6 +217,8 @@ export async function deleteBooth(id: string): Promise<void> {
   batch.delete(db.collection(ALIASES_COLLECTION).doc(id));
   await queueRemoveBoothFromLayout(batch, id);
   await batch.commit();
+  updateTag("booths");
+  updateTag("layout");
 
   // 정원 슬롯 문서(서브컬렉션)는 배치에 못 넣어서 따로 정리
   await deleteBoothInventory(id);

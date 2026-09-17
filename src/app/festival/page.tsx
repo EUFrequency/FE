@@ -5,7 +5,10 @@ import { getLayout } from "@/app/admin/_lib/firestore-layouts";
 import { getFestivalData } from "./_lib/active-season";
 import { FestivalClient } from "./_components/FestivalClient";
 
-// 예약 오픈/마감, 주점 목록 등 실시간성이 중요한 정보라 캐시 없이 매 요청마다 새로 조회함(SSR)
+// 매 요청마다 렌더링해서 오픈/마감 판정은 항상 "지금" 기준으로 계산함(SSR).
+// 시즌/주점/배치도/학과 목록 자체는 각 조회 함수 안에서 Data Cache로 캐싱되고
+// 관리자가 수정할 때 태그로 즉시 무효화되므로, 실제 Firestore 읽기는 최소화됨.
+// 예약 가능 여부(슬롯 마감 등)는 예약 모달에서 별도 서버 액션으로 그때그때 실시간 조회함.
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(

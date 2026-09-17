@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_cache, updateTag } from "next/cache";
 import { getAdminDb } from "@/lib/firebase/admin";
 import type { SeasonLayout } from "./types";
 
@@ -10,15 +11,24 @@ function layoutRef() {
   return getAdminDb().collection(COLLECTION).doc(GLOBAL_LAYOUT_ID);
 }
 
-/** 주점 배치도를 가져옴. 저장된 적 없으면 null */
-export async function getLayout(): Promise<SeasonLayout | null> {
-  const doc = await layoutRef().get();
-  if (!doc.exists) return null;
-  return doc.data() as SeasonLayout;
-}
+/**
+ * 주점 배치도를 가져옴. 저장된 적 없으면 null.
+ * /festival 공개 페이지도 쓰므로 60초 Data Cache로 감싸고, 배치도 저장/주점 삭제 시
+ * "layout" 태그로 즉시 무효화함.
+ */
+export const getLayout = unstable_cache(
+  async (): Promise<SeasonLayout | null> => {
+    const doc = await layoutRef().get();
+    if (!doc.exists) return null;
+    return doc.data() as SeasonLayout;
+  },
+  ["layout"],
+  { revalidate: 60, tags: ["layout"] },
+);
 
 export async function saveLayout(layout: SeasonLayout): Promise<void> {
   await layoutRef().set(layout);
+  updateTag("layout");
 }
 
 /**
