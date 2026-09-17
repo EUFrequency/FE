@@ -251,6 +251,7 @@ export function PendingPanel() {
         {pendingAction && (
           <PendingActionModal
             action={pendingAction}
+            ownerPhone={state.booths.find((b) => b.id === pendingAction.reservation.boothId)?.ownerPhone ?? null}
             busy={actionBusy}
             error={actionError}
             onConfirm={handlePrimaryConfirm}
@@ -320,28 +321,33 @@ function confirmButtonLabel(action: PendingAction): string {
   return action.type === "approve" ? "승인 처리" : "반려 처리";
 }
 
-function messagesFor(action: PendingAction): { label: string; text: string }[] {
+function messagesFor(
+  action: PendingAction,
+  ownerPhone: string | null,
+): { label: string; text: string }[] {
   const text =
     action.type === "approve"
-      ? buildApprovalMessage(action.reservation)
+      ? buildApprovalMessage(action.reservation, ownerPhone)
       : buildRejectionMessage(action.reservation);
   return [{ label: action.reservation.representativeName, text }];
 }
 
 function PendingActionModal({
   action,
+  ownerPhone,
   busy,
   error,
   onConfirm,
   onCancel,
 }: {
   action: PendingAction;
+  ownerPhone: string | null;
   busy: boolean;
   error: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const messages = messagesFor(action);
+  const messages = messagesFor(action, ownerPhone);
   const r = action.reservation;
   return (
     <div className="p-5">

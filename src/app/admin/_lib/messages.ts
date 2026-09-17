@@ -16,7 +16,7 @@ function formatTimeWithParens(time: string): string {
 }
 
 /** 승인(확정) 안내 - 카카오톡으로 그대로 붙여넣을 수 있는 메시지 */
-export function buildApprovalMessage(r: Reservation): string {
+export function buildApprovalMessage(r: Reservation, ownerPhone: string | null): string {
   const lines = [
     `안녕하세요 ${r.representativeName}님, ${formatDateKorean(r.date)} ${formatTimeWithParens(
       r.time,
@@ -24,6 +24,12 @@ export function buildApprovalMessage(r: Reservation): string {
   ];
   if (r.matching && r.assignedAlias) {
     lines.push(`별칭 : ${r.assignedAlias}`);
+  }
+  if (ownerPhone) {
+    lines.push(`주점 대표 연락처 : ${ownerPhone}`);
+  }
+  if (r.matching) {
+    lines.push(`매칭 여부는 일요일에 개별 전송됩니다.`);
   }
   lines.push(`유의사항은 ${SITE_URL}/festival/notice 를 통해 꼭 확인해주세요.`);
   return lines.join("\n");

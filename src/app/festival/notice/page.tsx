@@ -95,7 +95,7 @@ export default async function FestivalNoticePage() {
             <b className="font-semibold text-neutral-800 dark:text-neutral-100">
               예약이 취소되고 입금하신 금액은 환불되지 않습니다.
             </b>{" "}
-            늦으실 것 같으면 미리 연락 주시면 최대한 자리를 유지해드릴게요.
+            늦으실 것 같으면 주점 대표에게 미리 연락 주시면 최대한 자리를 유지해드릴게요.
           </Section>
 
           <Section num={4} title="입금 안내">
@@ -154,10 +154,6 @@ export default async function FestivalNoticePage() {
                   이 경우 입금하신 금액은 전액 환불해드립니다.
                 </>
               )}
-            </p>
-            <p className="mt-3">
-              대기 순번이 당겨지거나 확정/취소 안내는 모두 카카오톡으로 개별
-              연락드리니 꼭 확인해주세요.
             </p>
           </Section>
 
