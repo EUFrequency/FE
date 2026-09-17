@@ -9,7 +9,7 @@ import type { AdminBooth, MenuItem, MinOrderRule, TableConfig, TimeSlot } from "
 import { AccountManager } from "../AccountManager";
 import { Button, Checkbox, Input, Label, Textarea } from "../ui";
 
-const MAX_DESCRIPTION_IMAGES = 5;
+const MAX_DESCRIPTION_IMAGES = 10;
 const MAX_MENUS = 30;
 
 type Props = {
@@ -157,10 +157,12 @@ export function BoothForm({ initial, initialAliasPool, onCancel, onSubmit }: Pro
 
     // 이미지가 base64로 문서 안에 그대로 들어가서 Firestore 1문서당 1MB 제한에 걸릴 수
     // 있음 - 서버까지 보냈다가 알 수 없는 에러로 실패하는 대신 여기서 미리 걸러서 안내
+    // (소개 이미지 최대 10장 기준으로 여유를 둠)
     const estimatedBytes = new Blob([JSON.stringify(booth)]).size;
-    if (estimatedBytes > 950_000) {
+    const MAX_ESTIMATED_BYTES = 1_300_000;
+    if (estimatedBytes > MAX_ESTIMATED_BYTES) {
       setSubmitError(
-        `저장할 내용이 너무 큽니다(약 ${Math.round(estimatedBytes / 1024)}KB, 최대 약 950KB). ` +
+        `저장할 내용이 너무 큽니다(약 ${Math.round(estimatedBytes / 1024)}KB, 최대 약 ${Math.round(MAX_ESTIMATED_BYTES / 1024)}KB). ` +
           "메뉴/소개 이미지 개수를 줄이거나 용량이 큰 이미지를 다시 올려주세요.",
       );
       return;
